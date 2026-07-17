@@ -99,6 +99,7 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="en">
       <head>
         <HeadContent />
+        <link rel="icon" type="image/jpeg" href="/nifes.jpeg" />
       </head>
       <body>
         {children}
