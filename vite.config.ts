@@ -11,4 +11,7 @@ export default defineConfig({
     }),
     tailwindcss(),
   ],
+  ssr: {
+    noExternal: true,
+  },
 });
