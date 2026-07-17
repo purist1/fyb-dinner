@@ -7,8 +7,16 @@ export function SiteFooter() {
       <div className="mx-auto max-w-6xl px-4 py-10 text-sm text-muted-foreground">
         <div className="grid gap-8 md:grid-cols-3">
           <div>
-            <div className="font-serif text-xl text-foreground">{EVENT.orgShort} {EVENT.chapter}</div>
-            <p className="mt-2 max-w-xs">{EVENT.title} {EVENT.year} — a night of celebration, honour, and thanksgiving.</p>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 overflow-hidden rounded-full border border-gold/40 bg-white flex-shrink-0">
+                <img src="/nifes.jpeg" alt="NIFES Logo" className="h-full w-full object-cover" />
+              </div>
+              <div className="font-serif text-xl text-foreground leading-tight">
+                <div>{EVENT.orgShort}</div>
+                <div className="text-xs text-gold uppercase tracking-wider">{EVENT.chapter}</div>
+              </div>
+            </div>
+            <p className="mt-4 max-w-xs">{EVENT.title} {EVENT.year} — a night of celebration, honour, and thanksgiving.</p>
           </div>
           <div>
             <div className="mb-2 font-semibold text-foreground">Contact</div>

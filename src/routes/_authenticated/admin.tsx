@@ -13,6 +13,10 @@ import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { Loader2, Upload, Download, ScanLine, LogOut, Search, ShieldAlert, Save, Trash2 } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
+import { useServerFn } from "@tanstack/react-start";
+import { EVENT } from "@/lib/event";
+import { uploadGalleryImage } from "@/lib/storage";
+import { bulkImportRegistrations } from "@/lib/registrations.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage });
 
@@ -36,17 +40,32 @@ type Reg = {
 
 function AdminPage() {
   const navigate = useNavigate();
+  const runBulkImport = useServerFn(bulkImportRegistrations);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [regs, setRegs] = useState<Reg[]>([]);
   const [paidIds, setPaidIds] = useState<{ registration_id: string; full_name: string | null; used: boolean }[]>([]);
   const [venue, setVenue] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [fybPrice, setFybPrice] = useState("");
+  const [guestPrice, setGuestPrice] = useState("");
+  const [galleryItems, setGalleryItems] = useState<{ id: string; image_url: string; caption: string | null }[]>([]);
+  const [galleryFile, setGalleryFile] = useState<File | null>(null);
+  const [galleryCaption, setGalleryCaption] = useState("");
+  const [uploadingGallery, setUploadingGallery] = useState(false);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Bulk import states
+  const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) { navigate({ to: "/auth" }); return; }
+      setAdminUserId(u.user.id);
       const { data: role } = await supabase.from("user_roles").select("role").eq("user_id", u.user.id).eq("role", "admin").maybeSingle();
       setIsAdmin(!!role);
       if (role) await refresh();
@@ -55,14 +74,21 @@ function AdminPage() {
   }, []);
 
   async function refresh() {
-    const [r, p, v] = await Promise.all([
+    const [r, p, s, g] = await Promise.all([
       supabase.from("registrations").select("*").order("created_at", { ascending: false }),
       supabase.from("paid_fyb_ids").select("registration_id, full_name, used").order("created_at", { ascending: false }),
-      supabase.from("event_settings").select("value").eq("key", "venue").maybeSingle(),
+      supabase.from("event_settings").select("key, value"),
+      supabase.from("gallery").select("*").order("created_at", { ascending: false }),
     ]);
     setRegs((r.data as Reg[]) ?? []);
     setPaidIds(p.data ?? []);
-    setVenue(v.data?.value ?? "");
+    setGalleryItems(g.data ?? []);
+    if (s.data) {
+      setVenue(s.data.find(x => x.key === "venue")?.value ?? "");
+      setEventDate(s.data.find(x => x.key === "event_date")?.value ?? "");
+      setFybPrice(s.data.find(x => x.key === "fyb_price_naira")?.value ?? "7000");
+      setGuestPrice(s.data.find(x => x.key === "guest_price_naira")?.value ?? "5000");
+    }
   }
 
   const filtered = useMemo(() => {
@@ -92,11 +118,47 @@ function AdminPage() {
     navigate({ to: "/auth" });
   }
 
-  async function saveVenue() {
+  async function saveSettings() {
     setBusy(true);
-    const { error } = await supabase.from("event_settings").update({ value: venue, updated_at: new Date().toISOString() }).eq("key", "venue");
+    const updates = [
+      { key: "venue", value: venue, updated_at: new Date().toISOString() },
+      { key: "event_date", value: eventDate, updated_at: new Date().toISOString() },
+      { key: "fyb_price_naira", value: fybPrice, updated_at: new Date().toISOString() },
+      { key: "guest_price_naira", value: guestPrice, updated_at: new Date().toISOString() },
+    ];
+    const { error } = await supabase.from("event_settings").upsert(updates);
     setBusy(false);
-    if (error) toast.error(error.message); else toast.success("Venue updated");
+    if (error) toast.error(error.message); else toast.success("Settings updated successfully");
+  }
+
+  async function handleUploadGallery(e: React.FormEvent) {
+    e.preventDefault();
+    if (!galleryFile) { toast.error("Please select an image"); return; }
+    setUploadingGallery(true);
+    try {
+      const url = await uploadGalleryImage(galleryFile);
+      const { error } = await supabase.from("gallery").insert({
+        image_url: url,
+        caption: galleryCaption || null,
+        sort_order: galleryItems.length,
+      });
+      if (error) throw error;
+      toast.success("Image uploaded to gallery successfully");
+      setGalleryFile(null);
+      setGalleryCaption("");
+      const fileInput = document.getElementById("gallery-file-input") as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload image");
+    } finally {
+      setUploadingGallery(false);
+    }
+  }
+
+  async function handleDeleteGallery(id: string) {
+    const { error } = await supabase.from("gallery").delete().eq("id", id);
+    if (error) toast.error(error.message); else { toast.success("Gallery item deleted"); await refresh(); }
   }
 
   async function importPaidIds(file: File) {
@@ -122,6 +184,85 @@ function AdminPage() {
   async function removeId(id: string) {
     const { error } = await supabase.from("paid_fyb_ids").delete().eq("registration_id", id);
     if (error) toast.error(error.message); else { toast.success("Removed"); refresh(); }
+  }
+
+  async function parseBulkImportFile(file: File) {
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      let data: any[] = [];
+      if (ext === "csv") {
+        const text = await file.text();
+        const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+        data = parsed.data;
+      } else if (ext === "xlsx" || ext === "xls") {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        data = XLSX.utils.sheet_to_json(ws);
+      } else {
+        toast.error("Unsupported file format. Please upload CSV or Excel (.xlsx/.xls)");
+        return;
+      }
+
+      const mapped = data.map((r: any) => {
+        const fullName = r.full_name || r["Full Name"] || r.name || r.FullName || "";
+        const email = r.email || r.Email || r.email_address || r["Email Address"] || "";
+        const attendeeType = (r.attendee_type || r["Attendee Type"] || r.type || "fyb").toString().toLowerCase().trim();
+        const gender = (r.gender || r.Gender || "").toString().toLowerCase().trim();
+        const whatsapp = r.whatsapp || r.WhatsApp || r.phone || r.Phone || "";
+        const department = r.department || r.Department || r.dept || "";
+        const course = r.course || r.Course || "";
+        const fybId = r.fyb_registration_id || r["FYB ID"] || r.registration_id || "";
+
+        return {
+          full_name: fullName.toString().trim(),
+          email: email.toString().trim(),
+          attendee_type: (attendeeType === "guest" || attendeeType === "invited guest") ? "guest" : "fyb",
+          gender: (gender === "male" || gender === "female") ? gender : null,
+          whatsapp: whatsapp ? whatsapp.toString().trim() : null,
+          department: department ? department.toString().trim() : null,
+          course: course ? course.toString().trim() : null,
+          fyb_registration_id: fybId ? fybId.toString().trim() : null,
+        };
+      }).filter(r => r.full_name && r.email);
+
+      if (mapped.length === 0) {
+        toast.error("No valid rows found. Ensure you have 'full_name' and 'email' columns.");
+        return;
+      }
+
+      setImportPreview(mapped);
+      setImportFile(file);
+      toast.success(`Loaded ${mapped.length} registrants for preview`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to parse file");
+    }
+  }
+
+  async function handleBulkImport() {
+    if (importPreview.length === 0 || !adminUserId) return;
+    setImporting(true);
+    try {
+      const res = await runBulkImport({
+        data: {
+          registrants: importPreview,
+          adminUserId,
+        }
+      });
+      if (res.ok) {
+        toast.success(`Successfully imported ${res.count} registrations and sent ticket emails!`);
+        setImportPreview([]);
+        setImportFile(null);
+        const fileInput = document.getElementById("bulk-import-input") as HTMLInputElement;
+        if (fileInput) fileInput.value = "";
+        await refresh();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Bulk import failed");
+    } finally {
+      setImporting(false);
+    }
   }
 
   function exportCSV() {
@@ -161,14 +302,25 @@ function AdminPage() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-border/40 bg-background/70 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
-          <div>
-            <div className="text-xs uppercase tracking-widest text-gold">Admin Dashboard</div>
-            <h1 className="font-serif text-2xl">FYB Dinner 2026</h1>
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:py-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-full border border-gold/40 bg-white shadow-sm sm:h-10 sm:w-10">
+              <img src="/nifes.jpeg" alt="NIFES Logo" className="h-full w-full object-cover" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[9px] uppercase tracking-[0.2em] text-gold font-bold leading-none sm:text-[10px]">
+                {EVENT.orgShort} · {EVENT.chapter}
+              </div>
+              <h1 className="font-serif text-lg font-bold mt-0.5 truncate sm:text-2xl sm:mt-1">Admin Dashboard</h1>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Link to="/" className="text-sm text-muted-foreground hover:text-gold">Site</Link>
-            <Button variant="ghost" onClick={signOut}><LogOut className="mr-2 h-4 w-4" />Sign out</Button>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Link to="/" className="hidden text-sm font-semibold text-muted-foreground hover:text-gold transition sm:block">
+              View Site
+            </Link>
+            <Button variant="ghost" size="sm" onClick={signOut} className="hover:text-destructive transition">
+              <LogOut className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Sign out</span>
+            </Button>
           </div>
         </div>
       </header>
@@ -184,62 +336,67 @@ function AdminPage() {
             { label: "Checked in", v: stats.checkedIn },
             { label: "Revenue (₦)", v: stats.revenue.toLocaleString() },
           ].map(s => (
-            <div key={s.label} className="rounded-xl border border-border/60 bg-card p-4">
-              <div className="text-xs uppercase tracking-widest text-muted-foreground">{s.label}</div>
-              <div className="mt-1 font-serif text-2xl text-gradient-gold">{s.v}</div>
+            <div key={s.label} className="rounded-xl border border-gold/30 bg-gradient-royal p-4 shadow-elegant relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-12 h-12 bg-gold/5 rounded-full blur-xl pointer-events-none" />
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</div>
+              <div className="mt-1 font-serif text-3xl font-extrabold text-gradient-gold">{s.v}</div>
             </div>
           ))}
         </div>
 
-        <Tabs defaultValue="attendees" className="mt-8">
-          <TabsList className="flex flex-wrap">
-            <TabsTrigger value="attendees">Attendees</TabsTrigger>
-            <TabsTrigger value="paidids">Paid FYB IDs</TabsTrigger>
-            <TabsTrigger value="checkin">Check-in Scanner</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+        <Tabs defaultValue="attendees" className="mt-6 sm:mt-8">
+          <TabsList className="flex h-auto flex-wrap gap-1 p-1">
+            <TabsTrigger value="attendees" className="text-xs sm:text-sm">Attendees</TabsTrigger>
+            <TabsTrigger value="paidids" className="text-xs sm:text-sm">Paid FYB IDs</TabsTrigger>
+            <TabsTrigger value="bulk-import" className="text-xs sm:text-sm">Bulk Import</TabsTrigger>
+            <TabsTrigger value="checkin" className="text-xs sm:text-sm">Check-in</TabsTrigger>
+            <TabsTrigger value="gallery" className="text-xs sm:text-sm">Gallery</TabsTrigger>
+            <TabsTrigger value="settings" className="text-xs sm:text-sm">Settings</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="attendees" className="mt-6 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 min-w-[220px]">
+          <TabsContent value="attendees" className="mt-4 space-y-4 sm:mt-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="relative flex-1 min-w-0 sm:min-w-[220px]">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, ticket, department…" className="pl-9" />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, ticket…" className="pl-9" />
               </div>
-              <Button variant="outline" onClick={exportCSV}><Download className="mr-2 h-4 w-4" />CSV</Button>
-              <Button variant="outline" onClick={exportXLSX}><Download className="mr-2 h-4 w-4" />Excel</Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={exportCSV}><Download className="mr-1.5 h-3.5 w-3.5" />CSV</Button>
+                <Button variant="outline" size="sm" onClick={exportXLSX}><Download className="mr-1.5 h-3.5 w-3.5" />Excel</Button>
+              </div>
             </div>
-            <div className="overflow-auto rounded-xl border border-border/60">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ticket</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Dept / Course</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Check-in</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            <div className="overflow-x-auto rounded-xl border border-border/60">
+              <table className="w-full min-w-[700px] text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 bg-card/60">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Ticket</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Email</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Dept/Course</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Payment</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">In</th>
+                    <th className="px-3 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
                   {filtered.map(r => (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-mono text-xs">{r.ticket_code}</TableCell>
-                      <TableCell>{r.full_name}</TableCell>
-                      <TableCell><Badge variant="outline" className="border-gold/40 text-gold">{r.attendee_type.toUpperCase()}</Badge></TableCell>
-                      <TableCell className="text-xs">{r.email}</TableCell>
-                      <TableCell className="text-xs">{r.department}{r.course ? ` · ${r.course}` : ""}</TableCell>
-                      <TableCell>
+                    <tr key={r.id} className="border-b border-border/40 hover:bg-card/40 transition">
+                      <td className="px-3 py-3 font-mono text-xs text-muted-foreground">{r.ticket_code}</td>
+                      <td className="px-3 py-3 font-medium">{r.full_name}</td>
+                      <td className="px-3 py-3"><Badge variant="outline" className="border-gold/40 text-gold text-[10px]">{r.attendee_type.toUpperCase()}</Badge></td>
+                      <td className="px-3 py-3 text-xs">{r.email}</td>
+                      <td className="px-3 py-3 text-xs">{r.department}{r.course ? ` · ${r.course}` : ""}</td>
+                      <td className="px-3 py-3">
                         <Badge variant={r.payment_status === "pending" ? "destructive" : "default"} className={r.payment_status !== "pending" ? "bg-gradient-gold text-gold-foreground" : ""}>{r.payment_status}</Badge>
-                      </TableCell>
-                      <TableCell>{r.checked_in ? <Badge className="bg-gradient-gold text-gold-foreground">In</Badge> : <Badge variant="outline">—</Badge>}</TableCell>
-                      <TableCell><Button size="sm" variant="ghost" onClick={() => toggleCheckin(r)}>{r.checked_in ? "Undo" : "Check in"}</Button></TableCell>
-                    </TableRow>
+                      </td>
+                      <td className="px-3 py-3">{r.checked_in ? <Badge className="bg-gradient-gold text-gold-foreground">In</Badge> : <Badge variant="outline">—</Badge>}</td>
+                      <td className="px-3 py-3"><Button size="sm" variant="ghost" onClick={() => toggleCheckin(r)}>{r.checked_in ? "Undo" : "Check in"}</Button></td>
+                    </tr>
                   ))}
-                  {filtered.length === 0 && <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No registrations yet.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
+                  {filtered.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No registrations yet.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </TabsContent>
 
@@ -274,16 +431,196 @@ function AdminPage() {
             <CheckinScanner regs={regs} onCheckedIn={refresh} />
           </TabsContent>
 
-          <TabsContent value="settings" className="mt-6 max-w-xl">
-            <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-4">
-              <div>
-                <Label>Event Venue</Label>
-                <Textarea value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g. Main Auditorium, CUSTECH Osara" className="mt-2" />
+          <TabsContent value="gallery" className="mt-6 space-y-6">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 max-w-xl">
+              <h2 className="font-serif text-xl font-bold mb-3">Upload Gallery Image</h2>
+              <form onSubmit={handleUploadGallery} className="space-y-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="gallery-file-input">Select Image File</Label>
+                  <Input 
+                    id="gallery-file-input" 
+                    type="file" 
+                    accept="image/*" 
+                    required 
+                    onChange={(e) => setGalleryFile(e.target.files?.[0] ?? null)} 
+                    className="mt-1" 
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="gallery-caption">Caption (optional)</Label>
+                  <Input 
+                    id="gallery-caption" 
+                    value={galleryCaption} 
+                    onChange={(e) => setGalleryCaption(e.target.value)} 
+                    placeholder="e.g. Finalists worship session" 
+                    className="mt-1" 
+                  />
+                </div>
+                <Button type="submit" disabled={uploadingGallery} className="w-full bg-gradient-gold text-gold-foreground">
+                  {uploadingGallery ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  Upload Image
+                </Button>
+              </form>
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-card p-6">
+              <h2 className="font-serif text-xl font-bold mb-4">Current Gallery Images</h2>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+                {galleryItems.map(item => (
+                  <div key={item.id} className="group relative aspect-square overflow-hidden rounded-xl border border-border/60 bg-background">
+                    <img src={item.image_url} alt={item.caption ?? ""} className="h-full w-full object-cover" />
+                    {item.caption && (
+                      <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2 text-center text-[10px] text-white line-clamp-2 truncate">
+                        {item.caption}
+                      </div>
+                    )}
+                    <button 
+                      onClick={() => handleDeleteGallery(item.id)} 
+                      className="absolute right-2 top-2 rounded-full bg-destructive p-1.5 text-destructive-foreground shadow opacity-0 group-hover:opacity-100 transition hover:bg-destructive/80"
+                      aria-label="Delete image"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {galleryItems.length === 0 && (
+                  <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    No gallery images uploaded yet. Upload images to show them on the event website.
+                  </div>
+                )}
               </div>
-              <Button onClick={saveVenue} disabled={busy} className="bg-gradient-gold text-gold-foreground">
+            </div>
+          </TabsContent>
+
+          <TabsContent value="settings" className="mt-6 max-w-xl">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5">
+              <div className="grid gap-2">
+                <Label htmlFor="set-venue">Event Venue</Label>
+                <Textarea id="set-venue" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g. Main Auditorium, CUSTECH Osara" className="mt-1" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="set-date">Event Date & Time</Label>
+                <Input id="set-date" type="datetime-local" value={eventDate ? eventDate.substring(0, 16) : ""} onChange={(e) => setEventDate(new Date(e.target.value).toISOString())} className="mt-1" />
+                <p className="text-[10px] text-muted-foreground font-mono">Original saved ISO format: {eventDate}</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                   <Label htmlFor="set-fyb-price">Finalist (FYB) Ticket Price (₦)</Label>
+                   <Input id="set-fyb-price" type="number" value={fybPrice} onChange={(e) => setFybPrice(e.target.value)} className="mt-1" />
+                </div>
+                <div className="grid gap-2">
+                   <Label htmlFor="set-guest-price">Guest Ticket Price (₦)</Label>
+                   <Input id="set-guest-price" type="number" value={guestPrice} onChange={(e) => setGuestPrice(e.target.value)} className="mt-1" />
+                </div>
+              </div>
+              <Button onClick={saveSettings} disabled={busy} className="w-full bg-gradient-gold text-gold-foreground mt-2">
                 {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Venue
+                Save Event Settings
               </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="bulk-import" className="mt-6 space-y-6">
+            <div className="rounded-2xl border border-border/60 bg-card p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="font-serif text-xl font-bold text-gradient-gold">Bulk Import Offline Registrations</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Upload a CSV or Excel file containing details of finalists/guests who have paid offline. The system will automatically register them as paid, generate unique tickets, and email passes directly.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4 rounded-xl border border-dashed border-gold/30 bg-gold/5 p-6 text-center">
+                <div className="mx-auto flex max-w-lg flex-col items-center">
+                  <Upload className="h-8 w-8 text-gold mb-2" />
+                  <span className="text-sm font-semibold">Select File (CSV or Excel)</span>
+                  <span className="text-xs text-muted-foreground mt-2 max-w-md">
+                    Required columns: <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">full_name</code>, <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">email</code>. 
+                    Optional: <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">attendee_type</code> (fyb/guest), <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">department</code>, <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">course</code>, <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">whatsapp</code>, <code className="font-mono bg-background px-1 py-0.5 rounded text-gold">fyb_registration_id</code>.
+                  </span>
+                </div>
+                <Input
+                  id="bulk-import-input"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) parseBulkImportFile(file);
+                  }}
+                  className="mx-auto max-w-xs mt-2"
+                />
+              </div>
+
+              {importPreview.length > 0 && (
+                <div className="mt-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-serif text-lg font-semibold text-foreground">
+                      Import Preview ({importPreview.length} items loaded)
+                    </h3>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setImportPreview([]);
+                          setImportFile(null);
+                          const fileInput = document.getElementById("bulk-import-input") as HTMLInputElement;
+                          if (fileInput) fileInput.value = "";
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleBulkImport}
+                        disabled={importing}
+                        className="bg-gradient-gold text-gold-foreground"
+                      >
+                        {importing ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Importing & Emailing...
+                          </>
+                        ) : (
+                          "Confirm & Process Import"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-auto max-h-96 rounded-xl border border-border/60">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Full Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Department</TableHead>
+                          <TableHead>Course</TableHead>
+                          <TableHead>WhatsApp</TableHead>
+                          <TableHead>FYB ID (Offline ID)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {importPreview.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-semibold text-foreground">{item.full_name}</TableCell>
+                            <TableCell>{item.email}</TableCell>
+                            <TableCell>
+                              <Badge variant={item.attendee_type === "fyb" ? "default" : "secondary"}>
+                                {item.attendee_type === "fyb" ? "Finalist" : "Guest"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{item.department || "—"}</TableCell>
+                            <TableCell>{item.course || "—"}</TableCell>
+                            <TableCell>{item.whatsapp || "—"}</TableCell>
+                            <TableCell className="font-mono text-xs">{item.fyb_registration_id || "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>

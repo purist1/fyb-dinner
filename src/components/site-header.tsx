@@ -17,7 +17,9 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-border/40 bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-gold font-serif text-lg font-bold text-gold-foreground">N</div>
+          <div className="h-9 w-9 overflow-hidden rounded-full border border-gold/40 bg-white">
+            <img src="/nifes.jpeg" alt="NIFES Logo" className="h-full w-full object-cover" />
+          </div>
           <div className="hidden text-sm leading-tight sm:block">
             <div className="font-serif text-base font-bold">{EVENT.orgShort}</div>
             <div className="text-[10px] uppercase tracking-widest text-gold">{EVENT.chapter}</div>

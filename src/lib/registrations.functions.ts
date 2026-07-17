@@ -2,6 +2,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { sendTicketEmail, sendTicketEmailsBatch } from "./email";
+
+// Polyfill global WebSocket for older Node.js environments (like Node 20) on the server.
+// This prevents Supabase client initialization from throwing errors since we only use REST.
+if (typeof globalThis !== "undefined" && typeof (globalThis as any).WebSocket === "undefined") {
+  (globalThis as any).WebSocket = class MockWebSocket {
+    constructor() {}
+  };
+}
 
 const registrationSchema = z.object({
   attendee_type: z.enum(["fyb", "guest"]),
@@ -14,6 +23,7 @@ const registrationSchema = z.object({
   fyb_registration_id: z.string().trim().max(60).optional().nullable(),
   passport_url: z.string().url().optional().nullable(),
   already_paid: z.boolean().optional(),
+  ticket_amount: z.number().optional().nullable(),
 });
 
 function serverAnon() {
@@ -32,6 +42,19 @@ function serverAnon() {
   });
 }
 
+/** Service-role client — bypasses RLS for trusted server-side mutations (e.g. marking payment as paid). */
+function serverAdmin() {
+  const url = process.env.SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  if (!key) {
+    console.warn("⚠️ SUPABASE_SERVICE_ROLE_KEY is not set — falling back to anon client (RLS may block writes)");
+    return serverAnon();
+  }
+  return createClient<Database>(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 /** Create a registration.
  *  - For FYB with a valid, unused paid ID: mark payment_status=free (already paid offline).
  *  - Otherwise: payment_status=pending; caller then initializes Paystack.
@@ -40,7 +63,7 @@ function serverAnon() {
 export const createRegistration = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => registrationSchema.parse(d))
   .handler(async ({ data }) => {
-    const supabase = serverAnon();
+    const supabase = serverAdmin();
 
     // Basic duplicate check by email + type
     const { data: existing } = await supabase
@@ -57,6 +80,22 @@ export const createRegistration = createServerFn({ method: "POST" })
     let paymentStatus: "free" | "pending" = "pending";
     let amount: number | null = null;
 
+    const { data: settings } = await supabase.from("event_settings").select("key, value");
+    let fybPriceVal = 7000;
+    let guestPriceVal = 5000;
+    if (settings) {
+      const fybP = settings.find(s => s.key === "fyb_price_naira")?.value;
+      const guestP = settings.find(s => s.key === "guest_price_naira")?.value;
+      if (fybP) {
+        const parsed = parseInt(fybP.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(parsed)) fybPriceVal = parsed;
+      }
+      if (guestP) {
+        const parsed = parseInt(guestP.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(parsed)) guestPriceVal = parsed;
+      }
+    }
+
     if (data.attendee_type === "fyb" && data.already_paid && data.fyb_registration_id) {
       const { data: paid } = await supabase
         .from("paid_fyb_ids")
@@ -67,11 +106,17 @@ export const createRegistration = createServerFn({ method: "POST" })
         throw new Error("Registration ID not found. If you have paid, contact the FYB Coordinator.");
       }
       paymentStatus = "free";
-      amount = 7000;
+      amount = fybPriceVal;
     } else if (data.attendee_type === "fyb") {
-      amount = 7000;
+      amount = fybPriceVal;
     } else {
-      amount = 5000;
+      // Validate guest ticket amount is one of the allowed tiers: 1500, 3000, 5000.
+      const allowedTiers = [1500, 3000, 5000];
+      if (data.ticket_amount && allowedTiers.includes(data.ticket_amount)) {
+        amount = data.ticket_amount;
+      } else {
+        amount = 1500; // default to standard ticket if missing/tampered
+      }
     }
 
     const { data: inserted, error } = await supabase
@@ -102,6 +147,15 @@ export const createRegistration = createServerFn({ method: "POST" })
         .eq("registration_id", data.fyb_registration_id.trim());
     }
 
+    if (paymentStatus === "free") {
+      sendTicketEmail({
+        email: data.email,
+        fullName: data.full_name,
+        ticketCode: inserted.ticket_code,
+        attendeeType: data.attendee_type,
+      }).catch(err => console.error("Email delivery failed:", err));
+    }
+
     return { ok: true as const, ticket_code: inserted.ticket_code, status: paymentStatus, amount, id: inserted.id };
   });
 
@@ -112,7 +166,8 @@ export const initPaystackPayment = createServerFn({ method: "POST" })
     const secret = process.env.PAYSTACK_SECRET_KEY;
     if (!secret) throw new Error("Payment is not configured yet. Please contact the coordinator.");
 
-    const supabase = serverAnon();
+    // Use admin client for all DB operations — anon key may be blocked by RLS
+    const supabase = serverAdmin();
     const { data: reg, error } = await supabase
       .from("registrations")
       .select("ticket_code, email, full_name, payment_amount, payment_status")
@@ -145,7 +200,12 @@ export const initPaystackPayment = createServerFn({ method: "POST" })
       throw new Error(body.message || "Failed to initialize payment");
     }
 
-    await supabase.from("registrations").update({ payment_reference: reference }).eq("ticket_code", data.ticket_code);
+    const { error: refErr } = await supabase
+      .from("registrations")
+      .update({ payment_reference: reference })
+      .eq("ticket_code", data.ticket_code);
+
+    if (refErr) console.error("❌ [initPaystackPayment] Failed to store payment_reference:", refErr);
 
     return { ok: true as const, authorization_url: body.data.authorization_url, reference: body.data.reference };
   });
@@ -162,18 +222,139 @@ export const verifyPaystackPayment = createServerFn({ method: "POST" })
     const body = await res.json() as { status?: boolean; data?: { status: string; metadata?: { ticket_code?: string }; reference: string } };
     if (!res.ok || !body.status || !body.data) throw new Error("Could not verify payment");
 
-    const supabase = serverAnon();
+    console.log(`[verifyPaystackPayment] Paystack status=${body.data?.status}, reference=${body.data?.reference}`);
+
+    // Use service-role client to bypass RLS for the payment_status update
+    const supabaseAdmin = serverAdmin();
     if (body.data.status === "success") {
       // find by reference
-      const { data: reg } = await supabase
+      const { data: reg, error: findErr } = await supabaseAdmin
         .from("registrations")
-        .select("ticket_code")
+        .select("ticket_code, email, full_name, attendee_type")
         .eq("payment_reference", body.data.reference)
         .maybeSingle();
+      
+      console.log(`[verifyPaystackPayment] DB lookup result: reg=${reg?.ticket_code ?? "NOT FOUND"}, error=${findErr?.message ?? "none"}`);
+      
+      if (findErr) console.error("❌ [verifyPaystackPayment] Failed to find registration:", findErr);
+      
       if (reg) {
-        await supabase.from("registrations").update({ payment_status: "paid" }).eq("ticket_code", reg.ticket_code);
+        const { error: updateErr } = await supabaseAdmin
+          .from("registrations")
+          .update({ payment_status: "paid" })
+          .eq("ticket_code", reg.ticket_code);
+
+        if (updateErr) {
+          console.error("❌ [verifyPaystackPayment] Failed to update payment_status:", updateErr);
+          throw new Error("Payment verified but failed to update ticket. Please contact support.");
+        }
+        
+        sendTicketEmail({
+          email: reg.email,
+          fullName: reg.full_name,
+          ticketCode: reg.ticket_code,
+          attendeeType: reg.attendee_type as "fyb" | "guest",
+        }).catch(err => console.error("Email delivery failed:", err));
+
         return { ok: true as const, paid: true, ticket_code: reg.ticket_code };
       }
     }
     return { ok: true as const, paid: false };
   });
+
+const bulkImportItemSchema = z.object({
+  full_name: z.string().trim().min(2).max(120),
+  email: z.string().trim().email().max(255),
+  attendee_type: z.enum(["fyb", "guest"]),
+  gender: z.enum(["male", "female"]).optional().nullable(),
+  whatsapp: z.string().trim().max(30).optional().nullable(),
+  department: z.string().trim().max(120).optional().nullable(),
+  course: z.string().trim().max(120).optional().nullable(),
+  fyb_registration_id: z.string().trim().max(60).optional().nullable(),
+});
+
+const bulkImportSchema = z.object({
+  registrants: z.array(bulkImportItemSchema),
+  adminUserId: z.string().uuid(),
+});
+
+/** Bulk import offline paid registrations and trigger their ticket emails. */
+export const bulkImportRegistrations = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => bulkImportSchema.parse(d))
+  .handler(async ({ data }) => {
+    const supabaseAdmin = serverAdmin();
+
+    // 1. Verify that the user performing the action is an admin
+    const { data: role, error: roleError } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.adminUserId)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (roleError || !role) {
+      throw new Error("Unauthorized: You do not have permissions to perform this operation.");
+    }
+
+    // 2. Fetch price settings to set ticket prices correctly
+    const { data: settings } = await supabaseAdmin.from("event_settings").select("key, value");
+    let fybPriceVal = 7000;
+    let guestPriceVal = 5000;
+    if (settings) {
+      const fybP = settings.find(s => s.key === "fyb_price_naira")?.value;
+      const guestP = settings.find(s => s.key === "guest_price_naira")?.value;
+      if (fybP) {
+        const parsed = parseInt(fybP.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(parsed)) fybPriceVal = parsed;
+      }
+      if (guestP) {
+        const parsed = parseInt(guestP.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(parsed)) guestPriceVal = parsed;
+      }
+    }
+
+    // 3. Construct rows for bulk insert
+    const insertRows = data.registrants.map(item => {
+      const amount = item.attendee_type === "fyb" ? fybPriceVal : guestPriceVal;
+      return {
+        attendee_type: item.attendee_type,
+        full_name: item.full_name,
+        email: item.email,
+        gender: item.gender ?? null,
+        whatsapp: item.whatsapp ?? null,
+        department: item.department ?? null,
+        course: item.course ?? null,
+        fyb_registration_id: item.fyb_registration_id ?? null,
+        payment_status: "free" as const, // bulk imported are free (offline paid)
+        payment_amount: amount,
+      };
+    });
+
+    // 4. Perform bulk insert
+    const { data: inserted, error: insertError } = await supabaseAdmin
+      .from("registrations")
+      .insert(insertRows)
+      .select("ticket_code, full_name, email, attendee_type");
+
+    if (insertError) {
+      console.error("❌ [bulkImportRegistrations] Insert error:", insertError);
+      throw new Error(`Failed to bulk import registrations: ${insertError.message}`);
+    }
+
+    // 5. Send emails to all newly registered attendees in batch chunks of 100
+    if (inserted && inserted.length > 0) {
+      console.log(`[bulkImportRegistrations] Successfully imported ${inserted.length} users. Queueing batch emails...`);
+      const batchRecipients = inserted.map(reg => ({
+        email: reg.email,
+        fullName: reg.full_name,
+        ticketCode: reg.ticket_code,
+        attendeeType: reg.attendee_type as "fyb" | "guest",
+      }));
+      sendTicketEmailsBatch(batchRecipients).catch(err => 
+        console.error(`[bulkImportRegistrations] Batch email delivery failed:`, err)
+      );
+    }
+
+    return { ok: true as const, count: inserted?.length ?? 0 };
+  });
+

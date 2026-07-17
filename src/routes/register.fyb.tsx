@@ -12,13 +12,30 @@ import { createRegistration, initPaystackPayment } from "@/lib/registrations.fun
 import { toast } from "sonner";
 import { uploadPassport } from "@/lib/storage";
 import { Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/register/fyb")({ component: FybRegister });
+
+function useSettings() {
+  return useQuery({
+    queryKey: ["event-settings"],
+    queryFn: async () => {
+      const { data } = await supabase.from("event_settings").select("key,value");
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((r: { key: string; value: string | null }) => { if (r.value != null) map[r.key] = r.value; });
+      return map;
+    },
+  });
+}
 
 function FybRegister() {
   const navigate = useNavigate();
   const create = useServerFn(createRegistration);
   const initPay = useServerFn(initPaystackPayment);
+  const { data: settings } = useSettings();
+  const fybPrice = settings?.fyb_price_naira ?? "7000";
+  const formattedFyb = Number(fybPrice.replace(/[^0-9]/g, "") || "7000").toLocaleString();
   const [step, setStep] = useState<"paid-check" | "form">("paid-check");
   const [alreadyPaid, setAlreadyPaid] = useState<"yes" | "no" | "">("");
   const [regId, setRegId] = useState("");
@@ -79,13 +96,13 @@ function FybRegister() {
   return (
     <div className="min-h-screen">
       <SiteHeader />
-      <section className="mx-auto max-w-2xl px-4 py-14">
+      <section className="mx-auto max-w-2xl px-4 py-10 sm:py-14">
         <div className="text-xs uppercase tracking-widest text-gold">FYB Registration</div>
-        <h1 className="mt-2 font-serif text-3xl font-bold sm:text-4xl">Register as a Finalist</h1>
+        <h1 className="mt-2 font-serif text-2xl font-bold sm:text-3xl md:text-4xl">Register as a Finalist</h1>
 
         {step === "paid-check" && (
-          <div className="mt-8 rounded-2xl border border-border/60 bg-card p-6">
-            <Label className="text-base">Have you already paid the ₦7,000 dinner fee at the fellowship office?</Label>
+          <div className="mt-6 rounded-2xl border border-border/60 bg-card p-5 sm:mt-8 sm:p-6">
+            <Label className="text-base">Have you already paid the ₦{formattedFyb} dinner fee at the fellowship office?</Label>
             <RadioGroup value={alreadyPaid} onValueChange={(v) => setAlreadyPaid(v as "yes" | "no")} className="mt-4 grid gap-3">
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/60 p-4 hover:bg-accent/50">
                 <RadioGroupItem value="yes" id="paid-yes" />
@@ -154,7 +171,7 @@ function FybRegister() {
             <div className="rounded-xl border border-gold/30 bg-background/40 p-4 text-sm">
               {alreadyPaid === "yes"
                 ? <>You'll be sent directly to your digital ticket after registration.</>
-                : <>You'll be redirected to Paystack to pay <span className="font-semibold text-gold">₦7,000</span>. Your ticket unlocks once payment is confirmed.</>}
+                : <>You'll be redirected to Paystack to pay <span className="font-semibold text-gold">₦{formattedFyb}</span>. Your ticket unlocks once payment is confirmed.</>}
             </div>
 
             <Button type="submit" disabled={busy} className="w-full bg-gradient-gold text-gold-foreground hover:opacity-90">
