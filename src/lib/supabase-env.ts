@@ -64,14 +64,30 @@ export function readPublicSupabaseEnv() {
   };
 }
 
+export function readPublicSupabaseEnvFromProcess() {
+  const rawUrl =
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_PROJECT_ID ||
+    process.env.VITE_SUPABASE_PROJECT_ID;
+
+  const rawKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  return {
+    SUPABASE_URL: normalizeSupabaseUrl(rawUrl),
+    SUPABASE_PUBLISHABLE_KEY: rawKey?.trim() || undefined,
+  };
+}
+
 export function publicSupabaseHeadMeta(): Array<{ name: string; content: string }> {
   if (typeof process === "undefined") return [];
-  const url = normalizeSupabaseUrl(
-    process.env.SUPABASE_URL || urlFromProjectId(process.env.SUPABASE_PROJECT_ID),
-  );
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY?.trim();
+  const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = readPublicSupabaseEnvFromProcess();
   const meta: Array<{ name: string; content: string }> = [];
-  if (url) meta.push({ name: "fyb-public-supabase-url", content: url });
-  if (key) meta.push({ name: "fyb-public-supabase-key", content: key });
+  if (SUPABASE_URL) meta.push({ name: "fyb-public-supabase-url", content: SUPABASE_URL });
+  if (SUPABASE_PUBLISHABLE_KEY) {
+    meta.push({ name: "fyb-public-supabase-key", content: SUPABASE_PUBLISHABLE_KEY });
+  }
   return meta;
 }

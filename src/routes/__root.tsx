@@ -66,9 +66,14 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
+  loader: () => ({
+    // Read Worker secrets at request time on the server — not during Vite build.
+    publicSupabaseMeta:
+      typeof document === "undefined" ? publicSupabaseHeadMeta() : [],
+  }),
+  head: ({ loaderData }) => ({
     meta: [
-      ...publicSupabaseHeadMeta(),
+      ...(loaderData?.publicSupabaseMeta ?? []),
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#130d1e" },
