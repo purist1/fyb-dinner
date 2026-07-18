@@ -1,3 +1,5 @@
+import { readEnv, readEnvAny } from "./worker-env";
+
 declare global {
   interface Window {
     __FYB_PUBLIC_ENV__?: {
@@ -45,18 +47,18 @@ export function readPublicSupabaseEnv() {
     fromMeta.SUPABASE_URL ||
     fromWindow?.SUPABASE_URL ||
     import.meta.env.VITE_SUPABASE_URL ||
-    (typeof process !== "undefined" ? process.env.SUPABASE_URL : undefined) ||
+    readEnv("SUPABASE_URL") ||
     urlFromProjectId(
       fromWindow?.SUPABASE_PROJECT_ID ||
         import.meta.env.VITE_SUPABASE_PROJECT_ID ||
-        (typeof process !== "undefined" ? process.env.SUPABASE_PROJECT_ID : undefined),
+        readEnv("SUPABASE_PROJECT_ID"),
     );
 
   const rawKey =
     fromMeta.SUPABASE_PUBLISHABLE_KEY ||
     fromWindow?.SUPABASE_PUBLISHABLE_KEY ||
     import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    (typeof process !== "undefined" ? process.env.SUPABASE_PUBLISHABLE_KEY : undefined);
+    readEnv("SUPABASE_PUBLISHABLE_KEY");
 
   return {
     SUPABASE_URL: normalizeSupabaseUrl(rawUrl),
@@ -65,24 +67,43 @@ export function readPublicSupabaseEnv() {
 }
 
 export function readPublicSupabaseEnvFromProcess() {
-  const rawUrl =
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    process.env.SUPABASE_PROJECT_ID ||
-    process.env.VITE_SUPABASE_PROJECT_ID;
+  const rawUrl = readEnvAny([
+    "SUPABASE_URL",
+    "VITE_SUPABASE_URL",
+    "SUPABASE_PROJECT_ID",
+    "VITE_SUPABASE_PROJECT_ID",
+  ]);
 
-  const rawKey =
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const rawKey = readEnvAny([
+    "SUPABASE_PUBLISHABLE_KEY",
+    "VITE_SUPABASE_PUBLISHABLE_KEY",
+  ]);
 
   return {
     SUPABASE_URL: normalizeSupabaseUrl(rawUrl),
-    SUPABASE_PUBLISHABLE_KEY: rawKey?.trim() || undefined,
+    SUPABASE_PUBLISHABLE_KEY: rawKey,
+  };
+}
+
+export function readServerSupabaseEnv() {
+  const rawUrl = readEnvAny([
+    "SUPABASE_URL",
+    "VITE_SUPABASE_URL",
+    "SUPABASE_PROJECT_ID",
+    "VITE_SUPABASE_PROJECT_ID",
+  ]);
+
+  return {
+    SUPABASE_URL: normalizeSupabaseUrl(rawUrl),
+    SUPABASE_PUBLISHABLE_KEY: readEnvAny([
+      "SUPABASE_PUBLISHABLE_KEY",
+      "VITE_SUPABASE_PUBLISHABLE_KEY",
+    ]),
+    SUPABASE_SERVICE_ROLE_KEY: readEnv("SUPABASE_SERVICE_ROLE_KEY"),
   };
 }
 
 export function publicSupabaseHeadMeta(): Array<{ name: string; content: string }> {
-  if (typeof process === "undefined") return [];
   const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = readPublicSupabaseEnvFromProcess();
   const meta: Array<{ name: string; content: string }> = [];
   if (SUPABASE_URL) meta.push({ name: "fyb-public-supabase-url", content: SUPABASE_URL });

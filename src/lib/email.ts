@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { EVENT } from "./event";
+import { readServerSupabaseEnv } from "./supabase-env";
+import { readEnv } from "./worker-env";
 
 // Polyfill global WebSocket for Node environments on the server (Vite SSR / server functions)
 if (typeof globalThis !== "undefined" && typeof (globalThis as any).WebSocket === "undefined") {
@@ -10,9 +12,11 @@ if (typeof globalThis !== "undefined" && typeof (globalThis as any).WebSocket ==
 }
 
 function serverAnon() {
-  const url = process.env.SUPABASE_URL!;
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY!;
-  return createClient<Database>(url, key, {
+  const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = readServerSupabaseEnv();
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    throw new Error("Supabase is not configured on the server.");
+  }
+  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -185,7 +189,7 @@ export function getEmailHtml({
 }
 
 export async function sendTicketEmail({ email, fullName, ticketCode, attendeeType }: EmailOptions) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = readEnv("RESEND_API_KEY");
   if (!apiKey) {
     console.warn("⚠️ [Email Notification] RESEND_API_KEY is not set in environment. Skipping email sending.");
     return;
@@ -208,7 +212,7 @@ export async function sendTicketEmail({ email, fullName, ticketCode, attendeeTyp
     const dateHuman = formatted.date;
     const timeHuman = formatted.time;
 
-    const appUrl = process.env.APP_URL || "http://localhost:8080";
+    const appUrl = readEnv("APP_URL") || "http://localhost:8080";
     const ticketUrl = `${appUrl}/ticket/${ticketCode}`;
 
     const isFyb = attendeeType === "fyb";
@@ -227,8 +231,8 @@ export async function sendTicketEmail({ email, fullName, ticketCode, attendeeTyp
       attendeeType,
     });
 
-    const fromEmail = process.env.RESEND_FROM_EMAIL
-      ? `NIFES CUSTECH <${process.env.RESEND_FROM_EMAIL}>`
+    const fromEmail = readEnv("RESEND_FROM_EMAIL")
+      ? `NIFES CUSTECH <${readEnv("RESEND_FROM_EMAIL")}>`
       : "NIFES CUSTECH <onboarding@resend.dev>";
 
     const res = await fetch("https://api.resend.com/emails", {
@@ -259,7 +263,7 @@ export async function sendTicketEmail({ email, fullName, ticketCode, attendeeTyp
 
 /** Sends a batch of ticket emails in groups of 100 to comply with Resend limitations. */
 export async function sendTicketEmailsBatch(recipients: EmailOptions[]) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = readEnv("RESEND_API_KEY");
   if (!apiKey) {
     console.warn("⚠️ [Email Notification] RESEND_API_KEY is not set in environment. Skipping batch sending.");
     return;
@@ -281,10 +285,10 @@ export async function sendTicketEmailsBatch(recipients: EmailOptions[]) {
     const formatted = formatEventDate(eventDate);
     const dateHuman = formatted.date;
     const timeHuman = formatted.time;
-    const appUrl = process.env.APP_URL || "http://localhost:8080";
+    const appUrl = readEnv("APP_URL") || "http://localhost:8080";
 
-    const fromEmail = process.env.RESEND_FROM_EMAIL
-      ? `NIFES CUSTECH <${process.env.RESEND_FROM_EMAIL}>`
+    const fromEmail = readEnv("RESEND_FROM_EMAIL")
+      ? `NIFES CUSTECH <${readEnv("RESEND_FROM_EMAIL")}>`
       : "NIFES CUSTECH <onboarding@resend.dev>";
 
     // Prepare all requests

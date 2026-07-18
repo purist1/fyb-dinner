@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { createMemoryHistory } from "@tanstack/history";
 import { routeTree } from "./routeTree.gen";
+import { readEnv } from "./lib/worker-env";
 
 export const getRouter = () => {
   const queryClient = new QueryClient();
@@ -16,7 +17,7 @@ export const getRouter = () => {
     ...(isServer
       ? {
           isServer: true,
-          origin: process.env.APP_URL ?? "http://localhost",
+          origin: readEnv("APP_URL") ?? "http://localhost",
           history: createMemoryHistory({ initialEntries: ["/"] }),
         }
       : {}),

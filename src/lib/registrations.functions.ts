@@ -3,7 +3,8 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { sendTicketEmail, sendTicketEmailsBatch } from "./email";
-import { normalizeSupabaseUrl } from "./supabase-env";
+import { readServerSupabaseEnv } from "./supabase-env";
+import { readEnv } from "./worker-env";
 
 // Polyfill global WebSocket for older Node.js environments (like Node 20) on the server.
 // This prevents Supabase client initialization from throwing errors since we only use REST.
@@ -28,9 +29,14 @@ const registrationSchema = z.object({
 });
 
 function serverAnon() {
-  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL)!;
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY!;
-  return createClient<Database>(url, key, {
+  const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = readServerSupabaseEnv();
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    throw new Error(
+      "Supabase is not configured on the server. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Cloudflare Worker variables.",
+    );
+  }
+  const key = SUPABASE_PUBLISHABLE_KEY;
+  return createClient<Database>(SUPABASE_URL, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
       fetch: (input, init) => {
@@ -45,13 +51,18 @@ function serverAnon() {
 
 /** Service-role client — bypasses RLS for trusted server-side mutations (e.g. marking payment as paid). */
 function serverAdmin() {
-  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL)!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY } = readServerSupabaseEnv();
+  if (!SUPABASE_URL) {
+    throw new Error(
+      "Supabase is not configured on the server. Set SUPABASE_URL in Cloudflare Worker variables.",
+    );
+  }
+  const key = SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     console.warn("⚠️ SUPABASE_SERVICE_ROLE_KEY is not set — falling back to anon client (RLS may block writes)");
     return serverAnon();
   }
-  return createClient<Database>(url, key, {
+  return createClient<Database>(SUPABASE_URL, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -164,7 +175,7 @@ export const createRegistration = createServerFn({ method: "POST" })
 export const initPaystackPayment = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ ticket_code: z.string(), callback_url: z.string().url() }).parse(d))
   .handler(async ({ data }) => {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
+    const secret = readEnv("PAYSTACK_SECRET_KEY");
     if (!secret) throw new Error("Payment is not configured yet. Please contact the coordinator.");
 
     // Use admin client for all DB operations — anon key may be blocked by RLS
@@ -215,7 +226,7 @@ export const initPaystackPayment = createServerFn({ method: "POST" })
 export const verifyPaystackPayment = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ reference: z.string() }).parse(d))
   .handler(async ({ data }) => {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
+    const secret = readEnv("PAYSTACK_SECRET_KEY");
     if (!secret) throw new Error("Payment is not configured yet.");
     const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(data.reference)}`, {
       headers: { Authorization: `Bearer ${secret}` },
