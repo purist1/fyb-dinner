@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { sendTicketEmail, sendTicketEmailsBatch } from "./email";
+import { DEFAULT_GUEST_TICKET_AMOUNT, GUEST_TICKET_AMOUNTS } from "./guest-tickets";
 import { readServerSupabaseEnv } from "./supabase-env.server";
 import { readEnv } from "./worker-env.server";
 
@@ -122,12 +123,11 @@ export const createRegistration = createServerFn({ method: "POST" })
     } else if (data.attendee_type === "fyb") {
       amount = fybPriceVal;
     } else {
-      // Validate guest ticket amount is one of the allowed tiers: 1500, 3000, 5000.
-      const allowedTiers = [1500, 3000, 5000];
-      if (data.ticket_amount && allowedTiers.includes(data.ticket_amount)) {
+      // Validate guest ticket amount is one of the allowed tiers.
+      if (data.ticket_amount && GUEST_TICKET_AMOUNTS.includes(data.ticket_amount)) {
         amount = data.ticket_amount;
       } else {
-        amount = 1500; // default to standard ticket if missing/tampered
+        amount = DEFAULT_GUEST_TICKET_AMOUNT;
       }
     }
 

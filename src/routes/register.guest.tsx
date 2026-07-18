@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { useServerFn } from "@tanstack/react-start";
 import { createRegistration, initPaystackPayment } from "@/lib/registrations.functions";
+import { DEFAULT_GUEST_TICKET_AMOUNT, GUEST_TICKET_TIERS } from "@/lib/guest-tickets";
 import { toast } from "sonner";
 import { uploadPassport } from "@/lib/storage";
 import { Loader2 } from "lucide-react";
@@ -16,25 +17,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/register/guest")({ component: GuestRegister });
 
-function useSettings() {
-  return useQuery({
-    queryKey: ["event-settings"],
-    queryFn: async () => {
-      const { data } = await supabase.from("event_settings").select("key,value");
-      const map: Record<string, string> = {};
-      (data ?? []).forEach((r: { key: string; value: string | null }) => { if (r.value != null) map[r.key] = r.value; });
-      return map;
-    },
-  });
-}
-
 function GuestRegister() {
   const navigate = useNavigate();
   const create = useServerFn(createRegistration);
   const initPay = useServerFn(initPaystackPayment);
-  const { data: settings } = useSettings();
-  const guestPrice = settings?.guest_price_naira ?? "5000";
-  const formattedGuest = Number(guestPrice.replace(/[^0-9]/g, "") || "5000").toLocaleString();
 
   const [form, setForm] = useState({
     full_name: "",
@@ -42,7 +28,7 @@ function GuestRegister() {
     gender: "" as "male" | "female" | "",
     whatsapp: "",
   });
-  const [ticketAmount, setTicketAmount] = useState<number>(1500);
+  const [ticketAmount, setTicketAmount] = useState<number>(DEFAULT_GUEST_TICKET_AMOUNT);
   const [passport, setPassport] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -110,12 +96,8 @@ function GuestRegister() {
 
           <div className="grid gap-2">
             <Label>Choose Ticket Tier *</Label>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {[
-                { amount: 1500, title: "Standard", desc: "Access to venue & dinner" },
-                { amount: 3000, title: "VIP", desc: "Priority seating & premium dinner" },
-                { amount: 5000, title: "Executive", desc: "Front row seating & special recognition" }
-              ].map((tier) => (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {GUEST_TICKET_TIERS.map((tier) => (
                 <div
                   key={tier.amount}
                   onClick={() => setTicketAmount(tier.amount)}

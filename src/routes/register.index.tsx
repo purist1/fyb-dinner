@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { GraduationCap, UserPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatGuestTicketPriceList } from "@/lib/guest-tickets";
 
 export const Route = createFileRoute("/register/")({ component: RegisterChooser });
 
@@ -22,10 +23,8 @@ function useSettings() {
 function RegisterChooser() {
   const { data: settings } = useSettings();
   const fybPrice = settings?.fyb_price_naira ?? "7000";
-  const guestPrice = settings?.guest_price_naira ?? "5000";
-
   const formattedFyb = Number(fybPrice.replace(/[^0-9]/g, "") || "7000").toLocaleString();
-  const formattedGuest = Number(guestPrice.replace(/[^0-9]/g, "") || "5000").toLocaleString();
+  const guestTicketPrices = formatGuestTicketPriceList();
 
   return (
     <div className="min-h-screen">
@@ -50,7 +49,7 @@ function RegisterChooser() {
               <UserPlus className="h-6 w-6 sm:h-7 sm:w-7" />
             </div>
             <h2 className="mt-5 font-serif text-xl font-bold sm:mt-6 sm:text-2xl">I'm a Guest</h2>
-            <p className="mt-2 text-sm text-muted-foreground">For alumni, friends of the fellowship, family members, and invited guests. Tickets: ₦1,500, ₦3,000, ₦5,000.</p>
+            <p className="mt-2 text-sm text-muted-foreground">For alumni, friends of the fellowship, family members, and invited guests. Tickets: {guestTicketPrices}.</p>
             <div className="mt-5 inline-flex text-sm font-semibold text-gold group-hover:underline sm:mt-6">Continue as Guest →</div>
           </Link>
         </div>

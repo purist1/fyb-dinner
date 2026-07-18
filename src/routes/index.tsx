@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Countdown } from "@/components/countdown";
 import { EVENT, formatEventDate } from "@/lib/event";
+import { formatGuestTicketPriceList } from "@/lib/guest-tickets";
 import { supabase } from "@/integrations/supabase/client";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
@@ -172,7 +173,7 @@ function Landing() {
           <Accordion type="single" collapsible className="mt-8">
             {[
               { q: "Who can attend?", a: "The event is open to all finalists (FYB) of NIFES CUSTECH Osara, and to invited guests including alumni, friends of the fellowship, and family members." },
-              { q: "How much does it cost?", a: `FYB registration is ₦${settings?.fyb_price_naira ?? "7,000"}. Guest tickets are available in three tiers: ₦1,500 (Standard), ₦3,000 (VIP), and ₦5,000 (Executive).` },
+              { q: "How much does it cost?", a: `FYB registration is ₦${settings?.fyb_price_naira ?? "7,000"}. Guest tickets are available in four tiers: ${formatGuestTicketPriceList()}.` },
               { q: "How do I know if my FYB payment is recognised?", a: "During registration, enter the Registration ID given to you when you paid at the fellowship office. If it is on the paid list, you will be sent straight to your digital ticket." },
               { q: "Can I pay online?", a: "Yes. Both FYB and guest registration support secure online payment via Paystack." },
               { q: "What is the dress code?", a: "Elegant/formal — think dinner suits, gowns, and native attire in classy tones." },
