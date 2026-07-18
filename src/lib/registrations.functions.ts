@@ -32,7 +32,7 @@ function serverAnon() {
   const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = readServerSupabaseEnv();
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     throw new Error(
-      "Supabase is not configured on the server. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Cloudflare Worker variables.",
+      "Supabase is not configured on the server. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in environment variables.",
     );
   }
   const key = SUPABASE_PUBLISHABLE_KEY;
@@ -54,7 +54,7 @@ function serverAdmin() {
   const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY } = readServerSupabaseEnv();
   if (!SUPABASE_URL) {
     throw new Error(
-      "Supabase is not configured on the server. Set SUPABASE_URL in Cloudflare Worker variables.",
+      "Supabase is not configured on the server. Set SUPABASE_URL in environment variables.",
     );
   }
   const key = SUPABASE_SERVICE_ROLE_KEY;

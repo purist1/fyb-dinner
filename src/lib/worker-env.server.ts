@@ -1,6 +1,6 @@
 /**
- * Server-only env access for Cloudflare Workers.
- * Use dynamic process.env[key] — static process.env.FOO is inlined as {} at build time.
+ * Server-only env access.
+ * Use dynamic process.env[key] — static process.env.FOO may be inlined at build time.
  */
 
 export function readEnv(name: string): string | undefined {
