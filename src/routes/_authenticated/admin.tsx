@@ -8,6 +8,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -15,7 +25,7 @@ import { Loader2, Upload, Download, ScanLine, LogOut, Search, ShieldAlert, Save,
 import { Html5Qrcode } from "html5-qrcode";
 import { useServerFn } from "@tanstack/react-start";
 import { EVENT } from "@/lib/event";
-import { uploadGalleryImage } from "@/lib/storage";
+import { uploadGalleryImage, deleteGalleryImage } from "@/lib/storage";
 import { bulkImportRegistrations } from "@/lib/registrations.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage });
@@ -53,6 +63,8 @@ function AdminPage() {
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryCaption, setGalleryCaption] = useState("");
   const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [galleryDeleteTarget, setGalleryDeleteTarget] = useState<{ id: string; image_url: string } | null>(null);
+  const [deletingGallery, setDeletingGallery] = useState(false);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -164,9 +176,25 @@ function AdminPage() {
     }
   }
 
-  async function handleDeleteGallery(id: string) {
-    const { error } = await supabase.from("gallery").delete().eq("id", id);
-    if (error) toast.error(error.message); else { toast.success("Gallery item deleted"); await refresh(); }
+  async function confirmDeleteGallery() {
+    if (!galleryDeleteTarget) return;
+    setDeletingGallery(true);
+    try {
+      await deleteGalleryImage(galleryDeleteTarget.image_url);
+      const { error } = await supabase.from("gallery").delete().eq("id", galleryDeleteTarget.id);
+      if (error) throw error;
+      toast.success("Gallery image removed");
+      setGalleryDeleteTarget(null);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete gallery image");
+    } finally {
+      setDeletingGallery(false);
+    }
+  }
+
+  function requestDeleteGallery(item: { id: string; image_url: string }) {
+    setGalleryDeleteTarget(item);
   }
 
   async function importPaidIds(file: File) {
@@ -487,22 +515,8 @@ function AdminPage() {
             <div className="rounded-2xl border border-border/60 bg-card p-6">
               <h2 className="font-serif text-xl font-bold mb-4">Current Gallery Images</h2>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                {galleryItems.map(item => (
-                  <div key={item.id} className="group relative aspect-square overflow-hidden rounded-xl border border-border/60 bg-background">
-                    <img src={item.image_url} alt={item.caption ?? ""} className="h-full w-full object-cover" />
-                    {item.caption && (
-                      <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2 text-center text-[10px] text-white line-clamp-2 truncate">
-                        {item.caption}
-                      </div>
-                    )}
-                    <button 
-                      onClick={() => handleDeleteGallery(item.id)} 
-                      className="absolute right-2 top-2 rounded-full bg-destructive p-1.5 text-destructive-foreground shadow opacity-0 group-hover:opacity-100 transition hover:bg-destructive/80"
-                      aria-label="Delete image"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                {galleryItems.map((item) => (
+                  <AdminGalleryCard key={item.id} item={item} onDelete={() => requestDeleteGallery(item)} />
                 ))}
                 {galleryItems.length === 0 && (
                   <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
@@ -511,6 +525,31 @@ function AdminPage() {
                 )}
               </div>
             </div>
+
+            <AlertDialog open={!!galleryDeleteTarget} onOpenChange={(open) => !open && setGalleryDeleteTarget(null)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete gallery image?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes the image from the website and deletes the file from storage. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deletingGallery}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deletingGallery}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void confirmDeleteGallery();
+                    }}
+                  >
+                    {deletingGallery ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           <TabsContent value="settings" className="mt-6 max-w-xl">
@@ -656,6 +695,49 @@ function downloadBlob(content: string, name: string, type: string) {
   const a = document.createElement("a");
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
+}
+
+function AdminGalleryCard({
+  item,
+  onDelete,
+}: {
+  item: { id: string; image_url: string; caption: string | null };
+  onDelete: () => void;
+}) {
+  const [broken, setBroken] = useState(false);
+
+  return (
+    <div className="relative aspect-square overflow-hidden rounded-xl border border-border/60 bg-background">
+      {broken ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-center">
+          <Badge variant="outline" className="border-destructive/50 text-destructive">
+            Missing file
+          </Badge>
+          <p className="text-[10px] text-muted-foreground">Storage file not found. Remove this entry.</p>
+        </div>
+      ) : (
+        <img
+          src={item.image_url}
+          alt={item.caption ?? ""}
+          className="h-full w-full object-cover"
+          onError={() => setBroken(true)}
+        />
+      )}
+      {item.caption && !broken && (
+        <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2 text-center text-[10px] text-white line-clamp-2 truncate">
+          {item.caption}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onDelete}
+        className="absolute right-2 top-2 rounded-full bg-destructive p-1.5 text-destructive-foreground shadow hover:bg-destructive/80"
+        aria-label="Delete image"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
 }
 
 function PaidIdImporter({ onImport, onAdd }: { onImport: (f: File) => void; onAdd: (id: string, name: string) => void }) {

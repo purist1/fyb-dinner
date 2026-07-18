@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Calendar, Clock, MapPin, Sparkles, Trophy, Users, Heart, Mail, Phone } from "lucide-react";
 import heroBg from "@/assets/hero-bg.jpg";
@@ -151,9 +152,7 @@ function Landing() {
         </div>
         <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {(gallery && gallery.length > 0) ? gallery.map((g: { id: string; image_url: string; caption: string | null }) => (
-            <div key={g.id} className="group aspect-square overflow-hidden rounded-xl border border-border/60 bg-card">
-              <img src={g.image_url} alt={g.caption ?? ""} className="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" />
-            </div>
+            <GalleryTile key={g.id} imageUrl={g.image_url} caption={g.caption} />
           )) : Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="aspect-square rounded-xl border border-dashed border-border/60 bg-card/40" />
           ))}
@@ -205,6 +204,22 @@ function Landing() {
       </section>
 
       <SiteFooter />
+    </div>
+  );
+}
+
+function GalleryTile({ imageUrl, caption }: { imageUrl: string; caption: string | null }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+
+  return (
+    <div className="aspect-square overflow-hidden rounded-xl border border-border/60 bg-card">
+      <img
+        src={imageUrl}
+        alt={caption ?? "Gallery photo"}
+        className="h-full w-full object-cover"
+        onError={() => setBroken(true)}
+      />
     </div>
   );
 }

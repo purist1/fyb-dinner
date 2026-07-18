@@ -26,3 +26,21 @@ export async function uploadGalleryImage(file: File): Promise<string> {
   const { data } = supabase.storage.from("gallery").getPublicUrl(path);
   return data.publicUrl;
 }
+
+export function galleryStoragePathFromUrl(publicUrl: string): string | null {
+  const marker = "/storage/v1/object/public/gallery/";
+  const idx = publicUrl.indexOf(marker);
+  if (idx === -1) return null;
+  return decodeURIComponent(publicUrl.slice(idx + marker.length));
+}
+
+/** Remove the file from the gallery bucket. Ignores missing files. */
+export async function deleteGalleryImage(publicUrl: string): Promise<void> {
+  const path = galleryStoragePathFromUrl(publicUrl);
+  if (!path) return;
+
+  const { error } = await supabase.storage.from("gallery").remove([path]);
+  if (error && !error.message.toLowerCase().includes("not found")) {
+    throw error;
+  }
+}
