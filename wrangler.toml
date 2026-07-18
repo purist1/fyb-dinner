@@ -5,12 +5,7 @@ name = "fyb-dinner"
 compatibility_date = "2026-07-17"
 compatibility_flags = ["nodejs_compat"]
 main = "dist/server/server.js"
-no_bundle = true
 
 [assets]
 binding = "ASSETS"
 directory = "dist/client"
-
-[[rules]]
-type = "ESModule"
-globs = ["**/*.mjs", "**/*.js"]
