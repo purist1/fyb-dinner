@@ -5,7 +5,7 @@ import heroBg from "@/assets/hero-bg.jpg";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Countdown } from "@/components/countdown";
-import { EVENT } from "@/lib/event";
+import { EVENT, formatEventDate } from "@/lib/event";
 import { supabase } from "@/integrations/supabase/client";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
@@ -31,18 +31,6 @@ function useGallery() {
       return data ?? [];
     },
   });
-}
-
-function formatEventDate(isoString: string) {
-  try {
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return { date: "To Be Announced", time: "" };
-    const dateStr = d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-    const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-    return { date: dateStr, time: `${timeStr} (WAT)` };
-  } catch {
-    return { date: "To Be Announced", time: "" };
-  }
 }
 
 function Landing() {

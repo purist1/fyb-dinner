@@ -6,7 +6,7 @@ import { SiteFooter } from "@/components/site-footer";
 import QRCode from "qrcode";
 import { useServerFn } from "@tanstack/react-start";
 import { verifyPaystackPayment } from "@/lib/registrations.functions";
-import { EVENT } from "@/lib/event";
+import { EVENT, formatEventDate } from "@/lib/event";
 import { Calendar, Clock, MapPin, CheckCircle2, Loader2, Sparkles, Download, User, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,19 +31,6 @@ type Registration = {
   payment_amount: number | null;
   checked_in: boolean;
 };
-
-function formatEventDate(isoString: string) {
-  try {
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return { date: "To Be Announced", time: "", shortDate: "To Be Announced" };
-    const dateStr = d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-    const shortDateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-    return { date: dateStr, time: timeStr, shortDate: shortDateStr };
-  } catch {
-    return { date: "To Be Announced", time: "", shortDate: "To Be Announced" };
-  }
-}
 
 function TicketPage() {
   const { code } = Route.useParams();

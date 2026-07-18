@@ -16,7 +16,7 @@ export const getRouter = () => {
     ...(isServer
       ? {
           isServer: true,
-          origin: "http://localhost",
+          origin: process.env.APP_URL ?? "http://localhost",
           history: createMemoryHistory({ initialEntries: ["/"] }),
         }
       : {}),

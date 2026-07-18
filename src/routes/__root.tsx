@@ -95,11 +95,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  const publicEnvScript =
+    typeof process !== "undefined" &&
+    process.env.SUPABASE_URL &&
+    process.env.SUPABASE_PUBLISHABLE_KEY
+      ? `window.__FYB_PUBLIC_ENV__=${JSON.stringify({
+          SUPABASE_URL: process.env.SUPABASE_URL,
+          SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+        })};`
+      : null;
+
   return (
     <html lang="en">
       <head>
         <HeadContent />
         <link rel="icon" type="image/jpeg" href="/nifes.jpeg" />
+        {publicEnvScript ? (
+          <script dangerouslySetInnerHTML={{ __html: publicEnvScript }} />
+        ) : null}
       </head>
       <body>
         {children}
