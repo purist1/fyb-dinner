@@ -160,12 +160,15 @@ export const createRegistration = createServerFn({ method: "POST" })
     }
 
     if (paymentStatus === "free") {
-      sendTicketEmail({
+      const emailResult = await sendTicketEmail({
         email: data.email,
         fullName: data.full_name,
         ticketCode: inserted.ticket_code,
         attendeeType: data.attendee_type,
-      }).catch(err => console.error("Email delivery failed:", err));
+      });
+      if (!emailResult.ok) {
+        console.error("❌ [createRegistration] Ticket email failed:", emailResult.error);
+      }
     }
 
     return { ok: true as const, ticket_code: inserted.ticket_code, status: paymentStatus, amount, id: inserted.id };
@@ -323,19 +326,62 @@ export const verifyPaystackPayment = createServerFn({ method: "POST" })
           throw new Error("Payment verified but failed to update ticket. Please contact support.");
         }
 
-        if (reg.payment_status !== "paid" && reg.payment_status !== "free") {
-          sendTicketEmail({
+        const shouldSendEmail = reg.payment_status !== "paid" && reg.payment_status !== "free";
+        let emailSent: boolean | undefined;
+        let emailError: string | undefined;
+
+        if (shouldSendEmail) {
+          const emailResult = await sendTicketEmail({
             email: reg.email,
             fullName: reg.full_name,
             ticketCode: reg.ticket_code,
             attendeeType: reg.attendee_type as "fyb" | "guest",
-          }).catch((err) => console.error("Email delivery failed:", err));
+          });
+          emailSent = emailResult.ok;
+          if (!emailResult.ok) {
+            emailError = emailResult.error;
+            console.error("❌ [verifyPaystackPayment] Ticket email failed:", emailResult.error);
+          }
         }
 
-        return { ok: true as const, paid: true, ticket_code: reg.ticket_code };
+        return {
+          ok: true as const,
+          paid: true,
+          ticket_code: reg.ticket_code,
+          emailSent,
+          emailError,
+        };
       }
     }
     return { ok: true as const, paid: false };
+  });
+
+/** Send the VIP ticket email for a paid or free registration. */
+export const deliverTicketEmail = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ ticket_code: z.string().trim().min(1) }).parse(d))
+  .handler(async ({ data }) => {
+    const supabase = serverAdmin();
+    const { data: reg, error } = await supabase
+      .from("registrations")
+      .select("ticket_code, email, full_name, attendee_type, payment_status")
+      .eq("ticket_code", data.ticket_code)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!reg) throw new Error("Ticket not found");
+    if (reg.payment_status !== "paid" && reg.payment_status !== "free") {
+      throw new Error("Ticket email can only be sent after payment is confirmed.");
+    }
+
+    const emailResult = await sendTicketEmail({
+      email: reg.email,
+      fullName: reg.full_name,
+      ticketCode: reg.ticket_code,
+      attendeeType: reg.attendee_type as "fyb" | "guest",
+    });
+
+    if (!emailResult.ok) throw new Error(emailResult.error);
+    return { ok: true as const, email: reg.email };
   });
 
 const bulkImportItemSchema = z.object({
@@ -426,8 +472,8 @@ export const bulkImportRegistrations = createServerFn({ method: "POST" })
         ticketCode: reg.ticket_code,
         attendeeType: reg.attendee_type as "fyb" | "guest",
       }));
-      sendTicketEmailsBatch(batchRecipients).catch(err => 
-        console.error(`[bulkImportRegistrations] Batch email delivery failed:`, err)
+      sendTicketEmailsBatch(batchRecipients).catch((err) =>
+        console.error(`[bulkImportRegistrations] Batch email delivery failed:`, err),
       );
     }
 

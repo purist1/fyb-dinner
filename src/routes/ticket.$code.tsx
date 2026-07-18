@@ -6,12 +6,13 @@ import { SiteFooter } from "@/components/site-footer";
 import QRCode from "qrcode";
 import { useServerFn } from "@tanstack/react-start";
 import {
+  deliverTicketEmail,
   getTicketByCode,
   verifyPaystackPayment,
   type PublicTicket,
 } from "@/lib/registrations.functions";
 import { EVENT, formatEventDate } from "@/lib/event";
-import { Calendar, Clock, MapPin, CheckCircle2, Loader2, Download, User, GraduationCap } from "lucide-react";
+import { Calendar, Clock, MapPin, CheckCircle2, Loader2, Download, User, GraduationCap, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/ticket/$code")({
@@ -28,6 +29,7 @@ function TicketPage() {
   const s = useSearch({ from: "/ticket/$code" });
   const verify = useServerFn(verifyPaystackPayment);
   const fetchTicket = useServerFn(getTicketByCode);
+  const sendTicketEmail = useServerFn(deliverTicketEmail);
   const [reg, setReg] = useState<PublicTicket | null>(null);
   const [qr, setQr] = useState<string>("");
   const [venue, setVenue] = useState("To Be Announced");
@@ -35,6 +37,7 @@ function TicketPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [emailBusy, setEmailBusy] = useState(false);
 
   async function loadTicket() {
     setLoadError(null);
@@ -65,6 +68,20 @@ function TicketPage() {
     }
   }
 
+  async function handleSendTicketEmail() {
+    setEmailBusy(true);
+    try {
+      const result = await sendTicketEmail({ data: { ticket_code: code } });
+      toast.success("Ticket emailed", { description: `Your VIP pass was sent to ${result.email}.` });
+    } catch (err) {
+      toast.error("Could not send ticket email", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       const ref = s.reference || s.trxref;
@@ -73,8 +90,18 @@ function TicketPage() {
         try {
           if (ref) {
             const r = await verify({ data: { reference: ref } });
-            if (r.paid) toast.success("Payment confirmed! Loading your ticket…");
-            else toast.error("Payment verification returned unpaid status.");
+            if (r.paid) {
+              toast.success("Payment confirmed! Loading your ticket…");
+              if (r.emailSent) {
+                toast.success("VIP pass sent to your email");
+              } else if (r.emailError) {
+                toast.error("Ticket email could not be sent automatically", {
+                  description: r.emailError,
+                });
+              }
+            } else {
+              toast.error("Payment verification returned unpaid status.");
+            }
           }
         } catch (err) {
           console.error("[TicketPage] verify() threw:", err);
@@ -320,6 +347,21 @@ function TicketPage() {
             )}
 
             <div className="no-print mt-6 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
+              {paid && (
+                <button
+                  type="button"
+                  onClick={() => void handleSendTicketEmail()}
+                  disabled={emailBusy}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-gold/40 bg-card px-6 py-3.5 text-sm font-semibold text-foreground shadow-elegant transition hover:bg-card/60 disabled:opacity-60 sm:py-3"
+                >
+                  {emailBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-gold" />
+                  ) : (
+                    <Mail className="h-4 w-4 text-gold" />
+                  )}
+                  Email my ticket
+                </button>
+              )}
               <button
                 onClick={() => window.print()}
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-gold/40 bg-card px-6 py-3.5 text-sm font-semibold text-foreground shadow-elegant transition hover:bg-card/60 sm:py-3"

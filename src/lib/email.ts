@@ -1,8 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import nodemailer from "nodemailer";
 import type { Database } from "@/integrations/supabase/types";
 import { EVENT } from "./event";
 import { readServerSupabaseEnv } from "./supabase-env.server";
 import { readEnv } from "./worker-env.server";
+
+const TICKET_EMAIL_SUBJECT = "Your VIP Pass: NIFES FYB Dinner & Awards Night 2026";
+const REPLY_TO = "nifes.custech@gmail.com";
 
 // Polyfill global WebSocket for Node environments on the server (Vite SSR / server functions)
 if (typeof globalThis !== "undefined" && typeof (globalThis as any).WebSocket === "undefined") {
@@ -188,152 +192,239 @@ export function getEmailHtml({
   `;
 }
 
-export async function sendTicketEmail({ email, fullName, ticketCode, attendeeType }: EmailOptions) {
-  const apiKey = readEnv("RESEND_API_KEY");
-  if (!apiKey) {
-    console.warn("⚠️ [Email Notification] RESEND_API_KEY is not set in environment. Skipping email sending.");
-    return;
+type EmailProvider = "gmail" | "resend";
+
+function resolveEmailProvider(): EmailProvider | null {
+  const explicit = readEnv("EMAIL_PROVIDER")?.toLowerCase();
+  if (explicit === "gmail" || explicit === "resend") return explicit;
+
+  const gmailUser = readEnv("GMAIL_USER");
+  const gmailPass = readEnv("GMAIL_APP_PASSWORD");
+  if (gmailUser && gmailPass) return "gmail";
+
+  const resendKey = readEnv("RESEND_API_KEY");
+  const resendFrom = readEnv("RESEND_FROM_EMAIL");
+  if (resendKey && resendFrom) return "resend";
+
+  return null;
+}
+
+async function sendViaGmail(options: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const gmailUser = readEnv("GMAIL_USER");
+  const gmailPass = readEnv("GMAIL_APP_PASSWORD");
+  if (!gmailUser || !gmailPass) {
+    return { ok: false, error: "GMAIL_USER and GMAIL_APP_PASSWORD are not set." };
   }
 
   try {
-    const supabase = serverAnon();
-    const { data: settings } = await supabase.from("event_settings").select("key, value");
-    let venue = "To Be Announced";
-    let eventDate = EVENT.dateISO;
-
-    if (settings) {
-      const v = settings.find(s => s.key === "venue")?.value;
-      const d = settings.find(s => s.key === "event_date")?.value;
-      if (v) venue = v;
-      if (d) eventDate = d;
-    }
-
-    const formatted = formatEventDate(eventDate);
-    const dateHuman = formatted.date;
-    const timeHuman = formatted.time;
-
-    const appUrl = readEnv("APP_URL") || "http://localhost:8080";
-    const ticketUrl = `${appUrl}/ticket/${ticketCode}`;
-
-    const isFyb = attendeeType === "fyb";
-    const welcomeMessage = isFyb 
-      ? `Congratulations on completing your academic race! As a finalist, we are deeply honored to send you forth. Here is your exclusive VIP access pass for the celebration.` 
-      : `We are delighted and honored to have you join us for this special evening. Below is your official guest access ticket.`;
-
-    const htmlContent = getEmailHtml({
-      fullName,
-      ticketCode,
-      dateHuman,
-      timeHuman,
-      venue,
-      ticketUrl,
-      welcomeMessage,
-      attendeeType,
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: gmailUser, pass: gmailPass },
     });
 
-    const fromEmail = readEnv("RESEND_FROM_EMAIL")
-      ? `NIFES CUSTECH <${readEnv("RESEND_FROM_EMAIL")}>`
-      : "NIFES CUSTECH <onboarding@resend.dev>";
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: [email],
-        reply_to: ["nifescustech@gmail.com"],
-        subject: "Your VIP Pass: NIFES FYB Dinner & Awards Night 2026",
-        html: htmlContent,
-      }),
+    await transporter.sendMail({
+      from: `NIFES CUSTECH <${gmailUser}>`,
+      to: options.to,
+      replyTo: REPLY_TO,
+      subject: options.subject,
+      html: options.html,
     });
 
-    const body = await res.json();
-    if (!res.ok) {
-      console.error("❌ [Email Notification] Resend API Error:", body);
-    } else {
-      console.log(`✅ [Email Notification] Ticket email sent successfully to ${email}`);
-    }
+    console.log(`✅ [Email Notification] Ticket email sent via Gmail to ${options.to}`);
+    return { ok: true };
   } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.error("❌ [Email Notification] Gmail SMTP error:", err);
+    return { ok: false, error };
+  }
+}
+
+async function sendViaResend(options: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const apiKey = readEnv("RESEND_API_KEY");
+  const fromAddress = readEnv("RESEND_FROM_EMAIL");
+  if (!apiKey || !fromAddress) {
+    return {
+      ok: false,
+      error: "RESEND_API_KEY and RESEND_FROM_EMAIL must both be set (domain verified in Resend).",
+    };
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `NIFES CUSTECH <${fromAddress}>`,
+      to: [options.to],
+      reply_to: [REPLY_TO],
+      subject: options.subject,
+      html: options.html,
+    }),
+  });
+
+  const body = (await res.json()) as { message?: string; id?: string };
+  if (!res.ok) {
+    const error = body.message || `Resend API error (${res.status})`;
+    console.error("❌ [Email Notification] Resend API Error:", body);
+    return { ok: false, error };
+  }
+
+  console.log(`✅ [Email Notification] Ticket email sent via Resend to ${options.to} (id: ${body.id ?? "unknown"})`);
+  return { ok: true };
+}
+
+async function sendTransactionalEmail(options: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<{ ok: true; provider: EmailProvider } | { ok: false; error: string }> {
+  const provider = resolveEmailProvider();
+  if (!provider) {
+    return {
+      ok: false,
+      error:
+        "No email provider configured. Set GMAIL_USER + GMAIL_APP_PASSWORD (no domain needed), or RESEND_API_KEY + RESEND_FROM_EMAIL (requires a verified domain).",
+    };
+  }
+
+  const result = provider === "gmail" ? await sendViaGmail(options) : await sendViaResend(options);
+  if (!result.ok) return result;
+  return { ok: true, provider };
+}
+
+async function loadTicketEmailContext() {
+  const supabase = serverAnon();
+  const { data: settings } = await supabase.from("event_settings").select("key, value");
+  let venue = "To Be Announced";
+  let eventDate = EVENT.dateISO;
+
+  if (settings) {
+    const v = settings.find((s) => s.key === "venue")?.value;
+    const d = settings.find((s) => s.key === "event_date")?.value;
+    if (v) venue = v;
+    if (d) eventDate = d;
+  }
+
+  const formatted = formatEventDate(eventDate);
+  const appUrl = readEnv("APP_URL") || "http://localhost:8080";
+
+  return {
+    venue,
+    dateHuman: formatted.date,
+    timeHuman: formatted.time,
+    appUrl: appUrl.replace(/\/$/, ""),
+  };
+}
+
+function buildTicketEmailHtml(
+  options: EmailOptions,
+  context: Awaited<ReturnType<typeof loadTicketEmailContext>>,
+): string {
+  const isFyb = options.attendeeType === "fyb";
+  const welcomeMessage = isFyb
+    ? `Congratulations on completing your academic race! As a finalist, we are deeply honored to send you forth. Here is your exclusive VIP access pass for the celebration.`
+    : `We are delighted and honored to have you join us for this special evening. Below is your official guest access ticket.`;
+
+  return getEmailHtml({
+    fullName: options.fullName,
+    ticketCode: options.ticketCode,
+    dateHuman: context.dateHuman,
+    timeHuman: context.timeHuman,
+    venue: context.venue,
+    ticketUrl: `${context.appUrl}/ticket/${options.ticketCode}`,
+    welcomeMessage,
+    attendeeType: options.attendeeType,
+  });
+}
+
+export async function sendTicketEmail({
+  email,
+  fullName,
+  ticketCode,
+  attendeeType,
+}: EmailOptions): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const context = await loadTicketEmailContext();
+    const htmlContent = buildTicketEmailHtml({ email, fullName, ticketCode, attendeeType }, context);
+    const result = await sendTransactionalEmail({
+      to: email,
+      subject: TICKET_EMAIL_SUBJECT,
+      html: htmlContent,
+    });
+    if (!result.ok) return result;
+    return { ok: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
     console.error("❌ [Email Notification] Failed to send email:", err);
+    return { ok: false, error };
   }
 }
 
 /** Sends a batch of ticket emails in groups of 100 to comply with Resend limitations. */
 export async function sendTicketEmailsBatch(recipients: EmailOptions[]) {
-  const apiKey = readEnv("RESEND_API_KEY");
-  if (!apiKey) {
-    console.warn("⚠️ [Email Notification] RESEND_API_KEY is not set in environment. Skipping batch sending.");
+  const provider = resolveEmailProvider();
+  if (!provider) {
+    console.warn("⚠️ [Email Notification] No email provider configured. Skipping batch sending.");
     return;
   }
 
   try {
-    const supabase = serverAnon();
-    const { data: settings } = await supabase.from("event_settings").select("key, value");
-    let venue = "To Be Announced";
-    let eventDate = EVENT.dateISO;
+    const context = await loadTicketEmailContext();
 
-    if (settings) {
-      const v = settings.find(s => s.key === "venue")?.value;
-      const d = settings.find(s => s.key === "event_date")?.value;
-      if (v) venue = v;
-      if (d) eventDate = d;
+    if (provider === "gmail") {
+      for (const [index, recipient] of recipients.entries()) {
+        const htmlContent = buildTicketEmailHtml(recipient, context);
+        const result = await sendViaGmail({
+          to: recipient.email,
+          subject: TICKET_EMAIL_SUBJECT,
+          html: htmlContent,
+        });
+        if (!result.ok) {
+          console.error(`❌ [Email Notification] Gmail batch item ${index + 1} failed:`, result.error);
+        }
+        if (index + 1 < recipients.length) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+      return;
     }
 
-    const formatted = formatEventDate(eventDate);
-    const dateHuman = formatted.date;
-    const timeHuman = formatted.time;
-    const appUrl = readEnv("APP_URL") || "http://localhost:8080";
+    const apiKey = readEnv("RESEND_API_KEY");
+    const fromAddress = readEnv("RESEND_FROM_EMAIL");
+    if (!apiKey || !fromAddress) return;
 
-    const fromEmail = readEnv("RESEND_FROM_EMAIL")
-      ? `NIFES CUSTECH <${readEnv("RESEND_FROM_EMAIL")}>`
-      : "NIFES CUSTECH <onboarding@resend.dev>";
+    const emailRequests = recipients.map((r) => ({
+      from: `NIFES CUSTECH <${fromAddress}>`,
+      to: [r.email],
+      reply_to: [REPLY_TO],
+      subject: TICKET_EMAIL_SUBJECT,
+      html: buildTicketEmailHtml(r, context),
+    }));
 
-    // Prepare all requests
-    const emailRequests = recipients.map((r) => {
-      const ticketUrl = `${appUrl}/ticket/${r.ticketCode}`;
-      const isFyb = r.attendeeType === "fyb";
-      const welcomeMessage = isFyb
-        ? `Congratulations on completing your academic race! As a finalist, we are deeply honored to send you forth. Here is your exclusive VIP access pass for the celebration.`
-        : `We are delighted and honored to have you join us for this special evening. Below is your official guest access ticket.`;
-
-      const htmlContent = getEmailHtml({
-        fullName: r.fullName,
-        ticketCode: r.ticketCode,
-        dateHuman,
-        timeHuman,
-        venue,
-        ticketUrl,
-        welcomeMessage,
-        attendeeType: r.attendeeType,
-      });
-
-      return {
-        from: fromEmail,
-        to: [r.email],
-        reply_to: ["nifescustech@gmail.com"],
-        subject: "Your VIP Pass: NIFES FYB Dinner & Awards Night 2026",
-        html: htmlContent,
-      };
-    });
-
-    // Send in chunks of 100 (Resend batch API limit)
     const chunkSize = 100;
     for (let i = 0; i < emailRequests.length; i += chunkSize) {
       const chunk = emailRequests.slice(i, i + chunkSize);
-      console.log(`✉️ [Email Notification] Sending batch chunk ${Math.floor(i / chunkSize) + 1}/${Math.ceil(emailRequests.length / chunkSize)} (${chunk.length} emails)...`);
+      console.log(
+        `✉️ [Email Notification] Sending batch chunk ${Math.floor(i / chunkSize) + 1}/${Math.ceil(emailRequests.length / chunkSize)} (${chunk.length} emails)...`,
+      );
 
       const res = await fetch("https://api.resend.com/emails/batch", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          requests: chunk,
-        }),
+        body: JSON.stringify(chunk),
       });
 
       const body = await res.json();
@@ -343,7 +434,6 @@ export async function sendTicketEmailsBatch(recipients: EmailOptions[]) {
         console.log(`✅ [Email Notification] Sent batch chunk successfully`);
       }
 
-      // Small throttling delay to protect API limits
       if (i + chunkSize < emailRequests.length) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
