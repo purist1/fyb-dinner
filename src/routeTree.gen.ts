@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SetupAdminRouteImport } from './routes/setup-admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
@@ -18,6 +19,11 @@ import { Route as RegisterGuestRouteImport } from './routes/register.guest'
 import { Route as RegisterFybRouteImport } from './routes/register.fyb'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 
+const SetupAdminRoute = SetupAdminRouteImport.update({
+  id: '/setup-admin',
+  path: '/setup-admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -61,6 +67,7 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/setup-admin': typeof SetupAdminRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/register/fyb': typeof RegisterFybRoute
   '/register/guest': typeof RegisterGuestRoute
@@ -70,6 +77,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/setup-admin': typeof SetupAdminRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/register/fyb': typeof RegisterFybRoute
   '/register/guest': typeof RegisterGuestRoute
@@ -81,6 +89,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/setup-admin': typeof SetupAdminRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/register/fyb': typeof RegisterFybRoute
   '/register/guest': typeof RegisterGuestRoute
@@ -92,6 +101,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/setup-admin'
     | '/admin'
     | '/register/fyb'
     | '/register/guest'
@@ -101,6 +111,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/setup-admin'
     | '/admin'
     | '/register/fyb'
     | '/register/guest'
@@ -111,6 +122,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/setup-admin'
     | '/_authenticated/admin'
     | '/register/fyb'
     | '/register/guest'
@@ -122,6 +134,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  SetupAdminRoute: typeof SetupAdminRoute
   RegisterFybRoute: typeof RegisterFybRoute
   RegisterGuestRoute: typeof RegisterGuestRoute
   TicketCodeRoute: typeof TicketCodeRoute
@@ -130,6 +143,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/setup-admin': {
+      id: '/setup-admin'
+      path: '/setup-admin'
+      fullPath: '/setup-admin'
+      preLoaderRoute: typeof SetupAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  SetupAdminRoute: SetupAdminRoute,
   RegisterFybRoute: RegisterFybRoute,
   RegisterGuestRoute: RegisterGuestRoute,
   TicketCodeRoute: TicketCodeRoute,
