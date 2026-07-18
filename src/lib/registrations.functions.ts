@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { sendTicketEmail, sendTicketEmailsBatch } from "./email";
+import { normalizeSupabaseUrl } from "./supabase-env";
 
 // Polyfill global WebSocket for older Node.js environments (like Node 20) on the server.
 // This prevents Supabase client initialization from throwing errors since we only use REST.
@@ -27,7 +28,7 @@ const registrationSchema = z.object({
 });
 
 function serverAnon() {
-  const url = process.env.SUPABASE_URL!;
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL)!;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY!;
   return createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -44,7 +45,7 @@ function serverAnon() {
 
 /** Service-role client — bypasses RLS for trusted server-side mutations (e.g. marking payment as paid). */
 function serverAdmin() {
-  const url = process.env.SUPABASE_URL!;
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL)!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   if (!key) {
     console.warn("⚠️ SUPABASE_SERVICE_ROLE_KEY is not set — falling back to anon client (RLS may block writes)");

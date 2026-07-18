@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportError } from "../lib/error-reporting";
+import { publicSupabaseHeadMeta } from "@/lib/supabase-env";
 import { Toaster } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -67,6 +68,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
+      ...publicSupabaseHeadMeta(),
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#130d1e" },
@@ -95,24 +97,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
-  const publicEnvScript =
-    typeof process !== "undefined" &&
-    process.env.SUPABASE_URL &&
-    process.env.SUPABASE_PUBLISHABLE_KEY
-      ? `window.__FYB_PUBLIC_ENV__=${JSON.stringify({
-          SUPABASE_URL: process.env.SUPABASE_URL,
-          SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
-        })};`
-      : null;
-
   return (
     <html lang="en">
       <head>
         <HeadContent />
         <link rel="icon" type="image/jpeg" href="/nifes.jpeg" />
-        {publicEnvScript ? (
-          <script dangerouslySetInnerHTML={{ __html: publicEnvScript }} />
-        ) : null}
       </head>
       <body>
         {children}
