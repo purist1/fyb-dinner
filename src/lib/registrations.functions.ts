@@ -217,9 +217,42 @@ export const initPaystackPayment = createServerFn({ method: "POST" })
       .update({ payment_reference: reference })
       .eq("ticket_code", data.ticket_code);
 
-    if (refErr) console.error("❌ [initPaystackPayment] Failed to store payment_reference:", refErr);
+    if (refErr) {
+      console.error("❌ [initPaystackPayment] Failed to store payment_reference:", refErr);
+      throw new Error("Could not start payment session. Please try again or contact support.");
+    }
 
     return { ok: true as const, authorization_url: body.data.authorization_url, reference: body.data.reference };
+  });
+
+export type PublicTicket = {
+  ticket_code: string;
+  attendee_type: string;
+  full_name: string;
+  email: string;
+  department: string | null;
+  course: string | null;
+  passport_url: string | null;
+  payment_status: string;
+  payment_amount: number | null;
+  checked_in: boolean;
+};
+
+/** Fetch a ticket by code using the service-role client (works regardless of client Supabase config). */
+export const getTicketByCode = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ ticket_code: z.string().trim().min(1) }).parse(d))
+  .handler(async ({ data }) => {
+    const supabase = serverAdmin();
+    const { data: ticket, error } = await supabase
+      .from("registrations")
+      .select(
+        "ticket_code, attendee_type, full_name, email, department, course, passport_url, payment_status, payment_amount, checked_in",
+      )
+      .eq("ticket_code", data.ticket_code)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return ticket as PublicTicket | null;
   });
 
 /** Verify a Paystack reference and mark registration paid. */
@@ -236,37 +269,68 @@ export const verifyPaystackPayment = createServerFn({ method: "POST" })
 
     console.log(`[verifyPaystackPayment] Paystack status=${body.data?.status}, reference=${body.data?.reference}`);
 
-    // Use service-role client to bypass RLS for the payment_status update
     const supabaseAdmin = serverAdmin();
     if (body.data.status === "success") {
-      // find by reference
-      const { data: reg, error: findErr } = await supabaseAdmin
+      const ticketFields =
+        "ticket_code, email, full_name, attendee_type, payment_reference, payment_status" as const;
+
+      let reg:
+        | {
+            ticket_code: string;
+            email: string;
+            full_name: string;
+            attendee_type: string;
+            payment_reference: string | null;
+            payment_status: string;
+          }
+        | null = null;
+
+      const { data: byReference, error: findErr } = await supabaseAdmin
         .from("registrations")
-        .select("ticket_code, email, full_name, attendee_type")
+        .select(ticketFields)
         .eq("payment_reference", body.data.reference)
         .maybeSingle();
-      
-      console.log(`[verifyPaystackPayment] DB lookup result: reg=${reg?.ticket_code ?? "NOT FOUND"}, error=${findErr?.message ?? "none"}`);
-      
-      if (findErr) console.error("❌ [verifyPaystackPayment] Failed to find registration:", findErr);
-      
+
+      reg = byReference;
+      console.log(
+        `[verifyPaystackPayment] DB lookup by reference: reg=${reg?.ticket_code ?? "NOT FOUND"}, error=${findErr?.message ?? "none"}`,
+      );
+
+      const metadataTicketCode = body.data.metadata?.ticket_code?.trim();
+      if (!reg && metadataTicketCode) {
+        const { data: byCode, error: codeErr } = await supabaseAdmin
+          .from("registrations")
+          .select(ticketFields)
+          .eq("ticket_code", metadataTicketCode)
+          .maybeSingle();
+        reg = byCode;
+        console.log(
+          `[verifyPaystackPayment] DB lookup by metadata ticket_code: reg=${reg?.ticket_code ?? "NOT FOUND"}, error=${codeErr?.message ?? "none"}`,
+        );
+      }
+
       if (reg) {
+        const updates: { payment_status: "paid"; payment_reference?: string } = { payment_status: "paid" };
+        if (!reg.payment_reference) updates.payment_reference = body.data.reference;
+
         const { error: updateErr } = await supabaseAdmin
           .from("registrations")
-          .update({ payment_status: "paid" })
+          .update(updates)
           .eq("ticket_code", reg.ticket_code);
 
         if (updateErr) {
           console.error("❌ [verifyPaystackPayment] Failed to update payment_status:", updateErr);
           throw new Error("Payment verified but failed to update ticket. Please contact support.");
         }
-        
-        sendTicketEmail({
-          email: reg.email,
-          fullName: reg.full_name,
-          ticketCode: reg.ticket_code,
-          attendeeType: reg.attendee_type as "fyb" | "guest",
-        }).catch(err => console.error("Email delivery failed:", err));
+
+        if (reg.payment_status !== "paid" && reg.payment_status !== "free") {
+          sendTicketEmail({
+            email: reg.email,
+            fullName: reg.full_name,
+            ticketCode: reg.ticket_code,
+            attendeeType: reg.attendee_type as "fyb" | "guest",
+          }).catch((err) => console.error("Email delivery failed:", err));
+        }
 
         return { ok: true as const, paid: true, ticket_code: reg.ticket_code };
       }
