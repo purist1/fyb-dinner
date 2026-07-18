@@ -50,7 +50,7 @@ function AdminPage() {
   const [fybPrice, setFybPrice] = useState("");
   const [guestPrice, setGuestPrice] = useState("");
   const [galleryItems, setGalleryItems] = useState<{ id: string; image_url: string; caption: string | null }[]>([]);
-  const [galleryFile, setGalleryFile] = useState<File | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryCaption, setGalleryCaption] = useState("");
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [search, setSearch] = useState("");
@@ -133,24 +133,32 @@ function AdminPage() {
 
   async function handleUploadGallery(e: React.FormEvent) {
     e.preventDefault();
-    if (!galleryFile) { toast.error("Please select an image"); return; }
+    if (galleryFiles.length === 0) {
+      toast.error("Please select at least one image");
+      return;
+    }
     setUploadingGallery(true);
     try {
-      const url = await uploadGalleryImage(galleryFile);
-      const { error } = await supabase.from("gallery").insert({
-        image_url: url,
-        caption: galleryCaption || null,
-        sort_order: galleryItems.length,
-      });
+      const caption = galleryCaption.trim() || null;
+      const baseSort = galleryItems.length;
+      const rows: { image_url: string; caption: string | null; sort_order: number }[] = [];
+
+      for (const [index, file] of galleryFiles.entries()) {
+        const url = await uploadGalleryImage(file);
+        rows.push({ image_url: url, caption, sort_order: baseSort + index });
+      }
+
+      const { error } = await supabase.from("gallery").insert(rows);
       if (error) throw error;
-      toast.success("Image uploaded to gallery successfully");
-      setGalleryFile(null);
+
+      toast.success(`${rows.length} image${rows.length === 1 ? "" : "s"} uploaded to gallery`);
+      setGalleryFiles([]);
       setGalleryCaption("");
       const fileInput = document.getElementById("gallery-file-input") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to upload image");
+      toast.error(err instanceof Error ? err.message : "Failed to upload images");
     } finally {
       setUploadingGallery(false);
     }
@@ -433,32 +441,45 @@ function AdminPage() {
 
           <TabsContent value="gallery" className="mt-6 space-y-6">
             <div className="rounded-2xl border border-border/60 bg-card p-6 max-w-xl">
-              <h2 className="font-serif text-xl font-bold mb-3">Upload Gallery Image</h2>
+              <h2 className="font-serif text-xl font-bold mb-3">Upload Gallery Images</h2>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Select multiple photos at once. They will all share the same caption.
+              </p>
               <form onSubmit={handleUploadGallery} className="space-y-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="gallery-file-input">Select Image File</Label>
-                  <Input 
-                    id="gallery-file-input" 
-                    type="file" 
-                    accept="image/*" 
-                    required 
-                    onChange={(e) => setGalleryFile(e.target.files?.[0] ?? null)} 
-                    className="mt-1" 
+                  <Label htmlFor="gallery-file-input">Select Images</Label>
+                  <Input
+                    id="gallery-file-input"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    required
+                    onChange={(e) => setGalleryFiles(Array.from(e.target.files ?? []))}
+                    className="mt-1"
                   />
+                  {galleryFiles.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {galleryFiles.length} image{galleryFiles.length === 1 ? "" : "s"} selected
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="gallery-caption">Caption (optional)</Label>
-                  <Input 
-                    id="gallery-caption" 
-                    value={galleryCaption} 
-                    onChange={(e) => setGalleryCaption(e.target.value)} 
-                    placeholder="e.g. Finalists worship session" 
-                    className="mt-1" 
+                  <Label htmlFor="gallery-caption">Caption for all images</Label>
+                  <Input
+                    id="gallery-caption"
+                    value={galleryCaption}
+                    onChange={(e) => setGalleryCaption(e.target.value)}
+                    placeholder="e.g. FYB Dinner 2025 highlights"
+                    className="mt-1"
                   />
                 </div>
-                <Button type="submit" disabled={uploadingGallery} className="w-full bg-gradient-gold text-gold-foreground">
+                <Button type="submit" disabled={uploadingGallery || galleryFiles.length === 0} className="w-full bg-gradient-gold text-gold-foreground">
                   {uploadingGallery ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                  Upload Image
+                  {uploadingGallery
+                    ? `Uploading ${galleryFiles.length} image${galleryFiles.length === 1 ? "" : "s"}…`
+                    : galleryFiles.length > 0
+                      ? `Upload ${galleryFiles.length} Image${galleryFiles.length === 1 ? "" : "s"}`
+                      : "Upload Images"}
                 </Button>
               </form>
             </div>
