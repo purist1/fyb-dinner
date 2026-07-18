@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import { adminSignIn } from "@/lib/admin-auth.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,27 +14,26 @@ export const Route = createFileRoute("/auth")({ component: AuthPage });
 
 function AuthPage() {
   const navigate = useNavigate();
+  const signIn = useServerFn(adminSignIn);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        // Verify admin role before redirecting to dashboard
-        supabase.from("user_roles")
-          .select("role")
-          .eq("user_id", data.user.id)
-          .eq("role", "admin")
-          .maybeSingle()
-          .then(({ data: role }) => {
-            if (role) {
-              navigate({ to: "/admin" });
-            } else {
-              // Sign out if not authorized
-              supabase.auth.signOut();
-            }
-          });
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+
+      const { data: role } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", data.user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      if (role) {
+        navigate({ to: "/admin" });
+      } else {
+        await supabase.auth.signOut();
       }
     });
   }, [navigate]);
@@ -41,21 +42,12 @@ function AuthPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const session = await signIn({ data: { email, password } });
+      const { error } = await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
       if (error) throw error;
-      
-      // Double check role on sign in
-      const { data: role } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", data.user.id)
-        .eq("role", "admin")
-        .maybeSingle();
-
-      if (!role) {
-        await supabase.auth.signOut();
-        throw new Error("Access denied. Your account is not authorized as an admin.");
-      }
 
       toast.success("Welcome back");
       navigate({ to: "/admin" });
@@ -94,7 +86,7 @@ function AuthPage() {
           </form>
         </div>
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          Admin accounts are provisioned by the database administrator.
+          Admin accounts are created in Supabase, not via Vercel env vars. Use the email and password provisioned for your coordinator account.
         </p>
       </div>
     </div>
