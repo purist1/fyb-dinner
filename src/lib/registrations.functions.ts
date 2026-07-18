@@ -3,8 +3,8 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { sendTicketEmail, sendTicketEmailsBatch } from "./email";
-import { readServerSupabaseEnv } from "./supabase-env";
-import { readEnv } from "./worker-env";
+import { readServerSupabaseEnv } from "./supabase-env.server";
+import { readEnv } from "./worker-env.server";
 
 // Polyfill global WebSocket for older Node.js environments (like Node 20) on the server.
 // This prevents Supabase client initialization from throwing errors since we only use REST.

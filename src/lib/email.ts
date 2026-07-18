@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { EVENT } from "./event";
-import { readServerSupabaseEnv } from "./supabase-env";
-import { readEnv } from "./worker-env";
+import { readServerSupabaseEnv } from "./supabase-env.server";
+import { readEnv } from "./worker-env.server";
 
 // Polyfill global WebSocket for Node environments on the server (Vite SSR / server functions)
 if (typeof globalThis !== "undefined" && typeof (globalThis as any).WebSocket === "undefined") {

@@ -11,7 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportError } from "../lib/error-reporting";
-import { publicSupabaseHeadMeta } from "@/lib/supabase-env";
+import { fetchPublicSupabaseHeadMeta } from "@/lib/supabase-public.functions";
 import { Toaster } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -66,10 +66,11 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  loader: () => ({
-    // Read Worker secrets at request time on the server — not during Vite build.
+  loader: async () => ({
     publicSupabaseMeta:
-      typeof document === "undefined" ? publicSupabaseHeadMeta() : [],
+      typeof document === "undefined"
+        ? await fetchPublicSupabaseHeadMeta()
+        : [],
   }),
   head: ({ loaderData }) => ({
     meta: [
