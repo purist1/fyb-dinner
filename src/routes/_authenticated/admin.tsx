@@ -22,10 +22,11 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { Loader2, Upload, Download, ScanLine, LogOut, Search, ShieldAlert, Save, Trash2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { Html5Qrcode } from "html5-qrcode";
 import { useServerFn } from "@tanstack/react-start";
 import { EVENT } from "@/lib/event";
-import { uploadGalleryImage, deleteGalleryImage } from "@/lib/storage";
+import { uploadGalleryBatch, deleteGalleryImage, type GalleryUploadProgress } from "@/lib/storage";
 import { bulkImportRegistrations } from "@/lib/registrations.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage });
@@ -63,6 +64,7 @@ function AdminPage() {
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryCaption, setGalleryCaption] = useState("");
   const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [galleryUploadProgress, setGalleryUploadProgress] = useState<GalleryUploadProgress | null>(null);
   const [galleryDeleteTarget, setGalleryDeleteTarget] = useState<{ id: string; image_url: string } | null>(null);
   const [deletingGallery, setDeletingGallery] = useState(false);
   const [search, setSearch] = useState("");
@@ -150,29 +152,42 @@ function AdminPage() {
       return;
     }
     setUploadingGallery(true);
+    setGalleryUploadProgress(null);
     try {
       const caption = galleryCaption.trim() || null;
       const baseSort = galleryItems.length;
-      const rows: { image_url: string; caption: string | null; sort_order: number }[] = [];
 
-      for (const [index, file] of galleryFiles.entries()) {
-        const url = await uploadGalleryImage(file);
-        rows.push({ image_url: url, caption, sort_order: baseSort + index });
+      const { rows, failed } = await uploadGalleryBatch(galleryFiles, {
+        caption,
+        baseSort,
+        onProgress: setGalleryUploadProgress,
+      });
+
+      if (rows.length === 0) {
+        throw new Error("All uploads failed. Check your connection and try again.");
       }
 
       const { error } = await supabase.from("gallery").insert(rows);
       if (error) throw error;
 
-      toast.success(`${rows.length} image${rows.length === 1 ? "" : "s"} uploaded to gallery`);
+      if (failed > 0) {
+        toast.warning(`${rows.length} uploaded, ${failed} failed`);
+      } else {
+        toast.success(`${rows.length} image${rows.length === 1 ? "" : "s"} uploaded to gallery`);
+      }
+
       setGalleryFiles([]);
       setGalleryCaption("");
       const fileInput = document.getElementById("gallery-file-input") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
-      await refresh();
+
+      const { data: g } = await supabase.from("gallery").select("*").order("created_at", { ascending: false });
+      setGalleryItems(g ?? []);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to upload images");
     } finally {
       setUploadingGallery(false);
+      setGalleryUploadProgress(null);
     }
   }
 
@@ -501,10 +516,35 @@ function AdminPage() {
                     className="mt-1"
                   />
                 </div>
+                {uploadingGallery && galleryUploadProgress && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>
+                        {galleryUploadProgress.phase === "compressing" && "Compressing photos…"}
+                        {galleryUploadProgress.phase === "uploading" && "Uploading…"}
+                        {galleryUploadProgress.phase === "saving" && "Saving to gallery…"}
+                      </span>
+                      <span>
+                        {galleryUploadProgress.done} / {galleryUploadProgress.total}
+                      </span>
+                    </div>
+                    <Progress
+                      value={
+                        galleryUploadProgress.total > 0
+                          ? (galleryUploadProgress.done / galleryUploadProgress.total) * 100
+                          : 0
+                      }
+                    />
+                  </div>
+                )}
                 <Button type="submit" disabled={uploadingGallery || galleryFiles.length === 0} className="w-full bg-gradient-gold text-gold-foreground">
                   {uploadingGallery ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                  {uploadingGallery
-                    ? `Uploading ${galleryFiles.length} image${galleryFiles.length === 1 ? "" : "s"}…`
+                  {uploadingGallery && galleryUploadProgress
+                    ? galleryUploadProgress.phase === "compressing"
+                      ? `Compressing ${galleryUploadProgress.done}/${galleryUploadProgress.total}…`
+                      : galleryUploadProgress.phase === "uploading"
+                        ? `Uploading ${galleryUploadProgress.done}/${galleryUploadProgress.total}…`
+                        : "Saving…"
                     : galleryFiles.length > 0
                       ? `Upload ${galleryFiles.length} Image${galleryFiles.length === 1 ? "" : "s"}`
                       : "Upload Images"}
