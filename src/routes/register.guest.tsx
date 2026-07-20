@@ -2,10 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { InvitationCard } from "@/components/marketing/invitation-card";
+import { CeremonialButton } from "@/components/marketing/ceremonial-button";
+import { RegisterPageHeader } from "@/components/marketing/register-layout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Button } from "@/components/ui/button";
 import { useServerFn } from "@tanstack/react-start";
 import { createRegistration, initPaystackPayment } from "@/lib/registrations.functions";
 import { DEFAULT_GUEST_TICKET_AMOUNT, GUEST_TICKET_TIERS } from "@/lib/guest-tickets";
@@ -57,7 +59,9 @@ function GuestRegister() {
         navigate({ to: "/ticket/$code", params: { code: res.ticket_code } });
       }
     } catch (err) {
-      toast.error("Registration failed", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Registration failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
@@ -67,63 +71,106 @@ function GuestRegister() {
     <div className="min-h-screen">
       <SiteHeader />
       <section className="mx-auto max-w-2xl px-4 py-10 sm:py-14">
-        <div className="text-xs uppercase tracking-widest text-gold">Guest Registration</div>
-        <h1 className="mt-2 font-serif text-2xl font-bold sm:text-3xl md:text-4xl">Register as a Guest</h1>
-        <form onSubmit={submit} className="mt-6 space-y-5 rounded-2xl border border-border/60 bg-card p-5 sm:mt-8 sm:p-6">
-          <div className="grid gap-2">
-            <Label>Full Name *</Label>
-            <Input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Email *</Label>
-            <Input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Gender *</Label>
-            <RadioGroup required value={form.gender} onValueChange={(v) => setForm({ ...form, gender: v as "male" | "female" })} className="flex gap-4">
-              <label className="flex cursor-pointer items-center gap-2"><RadioGroupItem value="male" /> Male</label>
-              <label className="flex cursor-pointer items-center gap-2"><RadioGroupItem value="female" /> Female</label>
-            </RadioGroup>
-          </div>
-          <div className="grid gap-2">
-            <Label>WhatsApp Number <span className="text-muted-foreground">(optional)</span></Label>
-            <Input value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} placeholder="+234..." />
-          </div>
-          <div className="grid gap-2">
-            <Label>Passport Photo <span className="text-muted-foreground">(optional)</span></Label>
-            <Input type="file" accept="image/*" onChange={(e) => setPassport(e.target.files?.[0] ?? null)} />
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Choose Ticket Tier *</Label>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {GUEST_TICKET_TIERS.map((tier) => (
-                <div
-                  key={tier.amount}
-                  onClick={() => setTicketAmount(tier.amount)}
-                  className={`cursor-pointer rounded-xl border p-4 text-center transition-all ${
-                    ticketAmount === tier.amount
-                      ? "border-gold bg-gold/10 shadow-gold/20"
-                      : "border-border/60 hover:border-gold/50 bg-background/50"
-                  }`}
-                >
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">{tier.title}</div>
-                  <div className="mt-2 text-2xl font-black text-gradient-gold">₦{tier.amount.toLocaleString()}</div>
-                  <div className="mt-1 text-[10px] text-muted-foreground leading-normal">{tier.desc}</div>
-                </div>
-              ))}
+        <RegisterPageHeader
+          eyebrow="Guest Registration"
+          title="Request your guest pass"
+          subtitle="For alumni, friends, family, and invited guests joining the celebration."
+        />
+        <InvitationCard className="mt-8">
+          <form onSubmit={submit} className="space-y-5">
+            <div className="grid gap-2">
+              <Label>Full Name *</Label>
+              <Input
+                required
+                value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              />
             </div>
-          </div>
+            <div className="grid gap-2">
+              <Label>Email *</Label>
+              <Input
+                required
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Gender *</Label>
+              <RadioGroup
+                required
+                value={form.gender}
+                onValueChange={(v) => setForm({ ...form, gender: v as "male" | "female" })}
+                className="flex gap-4"
+              >
+                <label className="flex cursor-pointer items-center gap-2">
+                  <RadioGroupItem value="male" /> Male
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <RadioGroupItem value="female" /> Female
+                </label>
+              </RadioGroup>
+            </div>
+            <div className="grid gap-2">
+              <Label>
+                WhatsApp Number <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                value={form.whatsapp}
+                onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+                placeholder="+234..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>
+                Passport Photo <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setPassport(e.target.files?.[0] ?? null)}
+              />
+            </div>
 
-          <div className="rounded-xl border border-gold/30 bg-background/40 p-4 text-sm">
-            You'll be redirected to Paystack to pay <span className="font-semibold text-gold">₦{ticketAmount.toLocaleString()}</span>. Your ticket unlocks once payment is confirmed.
-          </div>
+            <div className="grid gap-2">
+              <Label>Choose Ticket Tier *</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {GUEST_TICKET_TIERS.map((tier) => (
+                  <div
+                    key={tier.amount}
+                    onClick={() => setTicketAmount(tier.amount)}
+                    className={`cursor-pointer rounded-xl border p-4 text-center transition-all ${
+                      ticketAmount === tier.amount
+                        ? "border-gold bg-gold/10 shadow-gold/20"
+                        : "border-border/60 hover:border-gold/50 bg-background/50"
+                    }`}
+                  >
+                    <div className="text-[10px] uppercase font-semibold text-muted-foreground">
+                      {tier.title}
+                    </div>
+                    <div className="mt-2 text-2xl font-black text-gradient-gold">
+                      ₦{tier.amount.toLocaleString()}
+                    </div>
+                    <div className="mt-1 text-[10px] text-muted-foreground leading-normal">
+                      {tier.desc}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-          <Button type="submit" disabled={busy} className="w-full bg-gradient-gold text-gold-foreground hover:opacity-90">
-            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Register & Pay
-          </Button>
-        </form>
+            <div className="rounded-xl border border-gold/30 bg-background/40 p-4 text-sm">
+              You'll be redirected to Paystack to pay{" "}
+              <span className="font-semibold text-gold">₦{ticketAmount.toLocaleString()}</span>.
+              Your ticket unlocks once payment is confirmed.
+            </div>
+
+            <CeremonialButton type="submit" className="w-full" disabled={busy}>
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Register & Pay
+            </CeremonialButton>
+          </form>
+        </InvitationCard>
       </section>
       <SiteFooter />
     </div>

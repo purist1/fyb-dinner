@@ -2,11 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { InvitationCard } from "@/components/marketing/invitation-card";
+import { CeremonialButton } from "@/components/marketing/ceremonial-button";
+import { RegisterPageHeader, RegistrationProgress } from "@/components/marketing/register-layout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Button } from "@/components/ui/button";
 import { useServerFn } from "@tanstack/react-start";
 import { createRegistration, initPaystackPayment } from "@/lib/registrations.functions";
 import { toast } from "sonner";
@@ -23,7 +24,9 @@ function useSettings() {
     queryFn: async () => {
       const { data } = await supabase.from("event_settings").select("key,value");
       const map: Record<string, string> = {};
-      (data ?? []).forEach((r: { key: string; value: string | null }) => { if (r.value != null) map[r.key] = r.value; });
+      (data ?? []).forEach((r: { key: string; value: string | null }) => {
+        if (r.value != null) map[r.key] = r.value;
+      });
       return map;
     },
   });
@@ -87,7 +90,9 @@ function FybRegister() {
         navigate({ to: "/ticket/$code", params: { code: res.ticket_code } });
       }
     } catch (err) {
-      toast.error("Registration failed", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Registration failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
@@ -97,13 +102,23 @@ function FybRegister() {
     <div className="min-h-screen">
       <SiteHeader />
       <section className="mx-auto max-w-2xl px-4 py-10 sm:py-14">
-        <div className="text-xs uppercase tracking-widest text-gold">FYB Registration</div>
-        <h1 className="mt-2 font-serif text-2xl font-bold sm:text-3xl md:text-4xl">Register as a Finalist</h1>
+        <RegisterPageHeader
+          eyebrow="Finalist Registration"
+          title="Complete your finalist registration"
+          subtitle="For FYB students being sent forth at NIFES CUSTECH Osara."
+        />
+        <RegistrationProgress step={step === "paid-check" ? 1 : 2} total={2} />
 
         {step === "paid-check" && (
-          <div className="mt-6 rounded-2xl border border-border/60 bg-card p-5 sm:mt-8 sm:p-6">
-            <Label className="text-base">Have you already paid the ₦{formattedFyb} dinner fee at the fellowship office?</Label>
-            <RadioGroup value={alreadyPaid} onValueChange={(v) => setAlreadyPaid(v as "yes" | "no")} className="mt-4 grid gap-3">
+          <InvitationCard className="mt-8">
+            <Label className="text-base">
+              Have you already paid the ₦{formattedFyb} dinner fee at the fellowship office?
+            </Label>
+            <RadioGroup
+              value={alreadyPaid}
+              onValueChange={(v) => setAlreadyPaid(v as "yes" | "no")}
+              className="mt-4 grid gap-3"
+            >
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/60 p-4 hover:bg-accent/50">
                 <RadioGroupItem value="yes" id="paid-yes" />
                 <span>Yes, I have paid</span>
@@ -117,68 +132,122 @@ function FybRegister() {
             {alreadyPaid === "yes" && (
               <div className="mt-5 grid gap-2">
                 <Label htmlFor="regid">Registration ID</Label>
-                <Input id="regid" placeholder="e.g. NIFES-FYB-1023" value={regId} onChange={(e) => setRegId(e.target.value)} />
-                <p className="text-xs text-muted-foreground">This was issued to you when you paid at the fellowship office.</p>
+                <Input
+                  id="regid"
+                  placeholder="e.g. NIFES-FYB-1023"
+                  value={regId}
+                  onChange={(e) => setRegId(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This was issued to you when you paid at the fellowship office.
+                </p>
               </div>
             )}
 
-            <Button
+            <CeremonialButton
+              type="button"
+              className="mt-6 w-full"
               disabled={!alreadyPaid || (alreadyPaid === "yes" && !regId.trim())}
               onClick={() => setStep("form")}
-              className="mt-6 w-full bg-gradient-gold text-gold-foreground hover:opacity-90"
             >
               Continue
-            </Button>
-          </div>
+            </CeremonialButton>
+          </InvitationCard>
         )}
 
         {step === "form" && (
-          <form onSubmit={submit} className="mt-8 space-y-5 rounded-2xl border border-border/60 bg-card p-6">
-            <div className="grid gap-2">
-              <Label>Full Name *</Label>
-              <Input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Email *</Label>
-              <Input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Gender *</Label>
-              <RadioGroup required value={form.gender} onValueChange={(v) => setForm({ ...form, gender: v as "male" | "female" })} className="flex gap-4">
-                <label className="flex cursor-pointer items-center gap-2"><RadioGroupItem value="male" /> Male</label>
-                <label className="flex cursor-pointer items-center gap-2"><RadioGroupItem value="female" /> Female</label>
-              </RadioGroup>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 sm:gap-4">
+          <InvitationCard className="mt-8">
+            <form onSubmit={submit} className="space-y-5">
               <div className="grid gap-2">
-                <Label>Department *</Label>
-                <Input required value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+                <Label>Full Name *</Label>
+                <Input
+                  required
+                  value={form.full_name}
+                  onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                />
               </div>
               <div className="grid gap-2">
-                <Label>Course of Study *</Label>
-                <Input required value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} />
+                <Label>Email *</Label>
+                <Input
+                  required
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
               </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>WhatsApp Number <span className="text-muted-foreground">(optional)</span></Label>
-              <Input value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} placeholder="+234..." />
-            </div>
-            <div className="grid gap-2">
-              <Label>Passport Photo <span className="text-muted-foreground">(optional)</span></Label>
-              <Input type="file" accept="image/*" onChange={(e) => setPassport(e.target.files?.[0] ?? null)} />
-            </div>
+              <div className="grid gap-2">
+                <Label>Gender *</Label>
+                <RadioGroup
+                  required
+                  value={form.gender}
+                  onValueChange={(v) => setForm({ ...form, gender: v as "male" | "female" })}
+                  className="flex gap-4"
+                >
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <RadioGroupItem value="male" /> Male
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <RadioGroupItem value="female" /> Female
+                  </label>
+                </RadioGroup>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-4">
+                <div className="grid gap-2">
+                  <Label>Department *</Label>
+                  <Input
+                    required
+                    value={form.department}
+                    onChange={(e) => setForm({ ...form, department: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Course of Study *</Label>
+                  <Input
+                    required
+                    value={form.course}
+                    onChange={(e) => setForm({ ...form, course: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>
+                  WhatsApp Number <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  value={form.whatsapp}
+                  onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+                  placeholder="+234..."
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>
+                  Passport Photo <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setPassport(e.target.files?.[0] ?? null)}
+                />
+              </div>
 
-            <div className="rounded-xl border border-gold/30 bg-background/40 p-4 text-sm">
-              {alreadyPaid === "yes"
-                ? <>You'll be sent directly to your digital ticket after registration.</>
-                : <>You'll be redirected to Paystack to pay <span className="font-semibold text-gold">₦{formattedFyb}</span>. Your ticket unlocks once payment is confirmed.</>}
-            </div>
+              <div className="rounded-xl border border-gold/30 bg-background/40 p-4 text-sm">
+                {alreadyPaid === "yes" ? (
+                  <>You'll be sent directly to your digital ticket after registration.</>
+                ) : (
+                  <>
+                    You'll be redirected to Paystack to pay{" "}
+                    <span className="font-semibold text-gold">₦{formattedFyb}</span>. Your ticket
+                    unlocks once payment is confirmed.
+                  </>
+                )}
+              </div>
 
-            <Button type="submit" disabled={busy} className="w-full bg-gradient-gold text-gold-foreground hover:opacity-90">
-              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {alreadyPaid === "yes" ? "Complete Registration" : "Register & Pay"}
-            </Button>
-          </form>
+              <CeremonialButton type="submit" className="w-full" disabled={busy}>
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {alreadyPaid === "yes" ? "Complete Registration" : "Register & Pay"}
+              </CeremonialButton>
+            </form>
+          </InvitationCard>
         )}
       </section>
       <SiteFooter />

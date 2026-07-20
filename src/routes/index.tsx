@@ -1,15 +1,18 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Clock, MapPin, Sparkles, Trophy, Users, Heart, Mail, Phone } from "lucide-react";
-import heroBg from "@/assets/hero-bg.jpg";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { Countdown } from "@/components/countdown";
+import { HeroSection } from "@/components/marketing/hero-section";
+import { FybStorySection } from "@/components/marketing/fyb-story-section";
+import { AboutSection } from "@/components/marketing/about-section";
+import { ProgrammeSection } from "@/components/marketing/programme-section";
+import { EventDetailsSection } from "@/components/marketing/event-details-section";
+import { GallerySection } from "@/components/marketing/gallery-section";
+import { FaqSection } from "@/components/marketing/faq-section";
+import { ContactSection } from "@/components/marketing/contact-section";
 import { EVENT, formatEventDate } from "@/lib/event";
 import { formatGuestTicketPriceList } from "@/lib/guest-tickets";
 import { supabase } from "@/integrations/supabase/client";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 export const Route = createFileRoute("/")({ component: Landing });
 
@@ -19,7 +22,9 @@ function useSettings() {
     queryFn: async () => {
       const { data } = await supabase.from("event_settings").select("key,value");
       const map: Record<string, string> = {};
-      (data ?? []).forEach((r: { key: string; value: string | null }) => { if (r.value != null) map[r.key] = r.value; });
+      (data ?? []).forEach((r: { key: string; value: string | null }) => {
+        if (r.value != null) map[r.key] = r.value;
+      });
       return map;
     },
   });
@@ -29,7 +34,10 @@ function useGallery() {
   return useQuery({
     queryKey: ["gallery"],
     queryFn: async () => {
-      const { data } = await supabase.from("gallery").select("*").order("sort_order", { ascending: true });
+      const { data } = await supabase
+        .from("gallery")
+        .select("*")
+        .order("sort_order", { ascending: true });
       return data ?? [];
     },
   });
@@ -41,185 +49,51 @@ function Landing() {
   const venue = settings?.venue ?? "To Be Announced";
   const eventDate = settings?.event_date ?? EVENT.dateISO;
   const formatted = formatEventDate(eventDate);
-  const dateHuman = formatted.date;
-  const timeHuman = formatted.time;
+
+  const faqItems = [
+    {
+      q: "What should I wear?",
+      a: "Elegant/formal — think dinner suits, gowns, and native attire in classy tones.",
+    },
+    {
+      q: "Who can attend?",
+      a: "The event is open to all finalists (FYB) of NIFES CUSTECH Osara, and to invited guests including alumni, friends of the fellowship, and family members.",
+    },
+    {
+      q: "How much does it cost?",
+      a: `FYB registration is ₦${settings?.fyb_price_naira ?? "7,000"}. Guest tickets are available in four tiers: ${formatGuestTicketPriceList()}.`,
+    },
+    {
+      q: "How do I know if my FYB payment is recognised?",
+      a: "During registration, enter the Registration ID given to you when you paid at the fellowship office. If it is on the paid list, you will be sent straight to your digital ticket.",
+    },
+    {
+      q: "Can I pay online?",
+      a: "Yes. Both FYB and guest registration support secure online payment via Paystack.",
+    },
+    {
+      q: "Where is the venue?",
+      a: "The exact venue will be announced closer to the date. Registered attendees will receive an update by email and on the platform.",
+    },
+  ];
 
   return (
     <div className="min-h-screen">
       <SiteHeader />
-
-      {/* HERO */}
-      <section className="relative overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${heroBg})` }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/70 to-background" />
-        <div className="relative mx-auto max-w-6xl px-4 py-16 sm:py-28 md:py-36">
-          <div className="mx-auto max-w-3xl text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-gold/40 bg-card/40 px-3 py-1 text-[10px] uppercase tracking-widest text-gold backdrop-blur sm:px-4 sm:py-1.5 sm:text-xs">
-              <Sparkles className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> {EVENT.orgShort} · {EVENT.chapter}
-            </div>
-            <h1 className="mt-4 font-serif text-3xl font-bold leading-tight sm:mt-6 sm:text-6xl md:text-7xl">
-              <span className="block">FYB Dinner</span>
-              <span className="block text-gradient-gold">& Awards Night</span>
-              <span className="mt-2 block text-xl font-medium text-muted-foreground sm:text-3xl">{EVENT.year}</span>
-            </h1>
-            <p className="mx-auto mt-4 max-w-2xl text-sm text-muted-foreground sm:mt-6 sm:text-lg">
-              An elegant evening of celebration, honour, and thanksgiving as we send forth our finalists into the next chapter of God's calling.
-            </p>
-
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs sm:mt-8 sm:gap-3 sm:text-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3 py-1.5 backdrop-blur"><Calendar className="h-3.5 w-3.5 text-gold" /> {dateHuman}</span>
-              {timeHuman && <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3 py-1.5 backdrop-blur"><Clock className="h-3.5 w-3.5 text-gold" /> {timeHuman}</span>}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3 py-1.5 backdrop-blur"><MapPin className="h-3.5 w-3.5 text-gold" /> {venue}</span>
-            </div>
-
-            <div className="mt-8">
-              <Countdown iso={eventDate} />
-            </div>
-
-            <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-              <Link to="/register" className="w-full rounded-full bg-gradient-gold px-8 py-3.5 text-sm font-semibold text-gold-foreground shadow-gold transition hover:opacity-90 sm:w-auto">
-                Register Now
-              </Link>
-              <a href="#details" className="w-full rounded-full border border-gold/40 px-8 py-3.5 text-center text-sm font-semibold text-foreground transition hover:bg-card/60 sm:w-auto">
-                Learn More
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ABOUT */}
-      <section id="about" className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
-        <div className="grid gap-10 md:grid-cols-2 md:items-center">
-          <div>
-            <div className="text-xs uppercase tracking-widest text-gold">About the Event</div>
-            <h2 className="mt-3 font-serif text-2xl font-bold sm:text-3xl md:text-4xl">A night to honour God and celebrate His faithfulness</h2>
-            <p className="mt-4 text-sm text-muted-foreground sm:text-base">
-              The FYB Dinner & Awards Night is the crowning event of the academic year for the {EVENT.orgShort} family at {EVENT.chapter}. It brings together our finalists, executives, alumni, and friends for an evening of worship, fellowship, fine dining, and awards that honour dedication and service.
-            </p>
-            <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-              This is more than a dinner — it is a commissioning, a thanksgiving, and a family gathering as we send forth another set of students into the world for Christ.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            {[
-              { icon: Heart, title: "Worship", body: "Praise and reflection as one body." },
-              { icon: Trophy, title: "Awards", body: "Honouring servants and finalists." },
-              { icon: Users, title: "Fellowship", body: "Family, alumni, and friends." },
-              { icon: Sparkles, title: "Fine Dining", body: "An elegant three-course evening." },
-            ].map((f) => (
-              <div key={f.title} className="rounded-2xl border border-border/60 bg-card/60 p-4 sm:p-5">
-                <f.icon className="h-5 w-5 text-gold sm:h-6 sm:w-6" />
-                <div className="mt-2 font-serif text-base sm:mt-3 sm:text-lg">{f.title}</div>
-                <div className="mt-1 text-xs text-muted-foreground sm:text-sm">{f.body}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* DETAILS */}
-      <section id="details" className="bg-gradient-royal py-20">
-        <div className="mx-auto max-w-6xl px-4">
-          <div className="mx-auto max-w-2xl text-center">
-            <div className="text-xs uppercase tracking-widest text-gold">Event Details</div>
-            <h2 className="mt-3 font-serif text-3xl font-bold sm:text-4xl">Save the date</h2>
-          </div>
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
-            {[
-              { icon: Calendar, label: "Date", value: dateHuman },
-              { icon: Clock, label: "Time", value: timeHuman },
-              { icon: MapPin, label: "Venue", value: venue },
-            ].map((d) => (
-              <div key={d.label} className="rounded-2xl border border-gold/30 bg-background/40 p-6 text-center backdrop-blur">
-                <d.icon className="mx-auto h-7 w-7 text-gold" />
-                <div className="mt-4 text-xs uppercase tracking-widest text-muted-foreground">{d.label}</div>
-                <div className="mt-1 font-serif text-xl">{d.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* GALLERY */}
-      <section id="gallery" className="mx-auto max-w-6xl px-4 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="text-xs uppercase tracking-widest text-gold">Gallery</div>
-          <h2 className="mt-3 font-serif text-3xl font-bold sm:text-4xl">Moments from past events</h2>
-        </div>
-        <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-          {(gallery && gallery.length > 0) ? gallery.map((g: { id: string; image_url: string; caption: string | null }) => (
-            <GalleryTile key={g.id} imageUrl={g.image_url} caption={g.caption} />
-          )) : Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="aspect-square rounded-xl border border-dashed border-border/60 bg-card/40" />
-          ))}
-        </div>
-        {(!gallery || gallery.length === 0) && (
-          <p className="mt-6 text-center text-sm text-muted-foreground">Photos from the night will be shared here after the event.</p>
-        )}
-      </section>
-
-      {/* FAQ */}
-      <section id="faq" className="bg-card/30 py-20">
-        <div className="mx-auto max-w-3xl px-4">
-          <div className="text-center">
-            <div className="text-xs uppercase tracking-widest text-gold">FAQ</div>
-            <h2 className="mt-3 font-serif text-3xl font-bold sm:text-4xl">Frequently asked questions</h2>
-          </div>
-          <Accordion type="single" collapsible className="mt-8">
-            {[
-              { q: "Who can attend?", a: "The event is open to all finalists (FYB) of NIFES CUSTECH Osara, and to invited guests including alumni, friends of the fellowship, and family members." },
-              { q: "How much does it cost?", a: `FYB registration is ₦${settings?.fyb_price_naira ?? "7,000"}. Guest tickets are available in four tiers: ${formatGuestTicketPriceList()}.` },
-              { q: "How do I know if my FYB payment is recognised?", a: "During registration, enter the Registration ID given to you when you paid at the fellowship office. If it is on the paid list, you will be sent straight to your digital ticket." },
-              { q: "Can I pay online?", a: "Yes. Both FYB and guest registration support secure online payment via Paystack." },
-              { q: "What is the dress code?", a: "Elegant/formal — think dinner suits, gowns, and native attire in classy tones." },
-              { q: "Where is the venue?", a: "The exact venue will be announced closer to the date. Registered attendees will receive an update by email and on the platform." },
-            ].map((f, i) => (
-              <AccordionItem key={i} value={`i${i}`} className="border-border/40">
-                <AccordionTrigger className="text-left font-medium">{f.q}</AccordionTrigger>
-                <AccordionContent className="text-muted-foreground">{f.a}</AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </div>
-      </section>
-
-      {/* CONTACT */}
-      <section id="contact" className="mx-auto max-w-3xl px-4 py-14 text-center sm:py-20">
-        <div className="text-xs uppercase tracking-widest text-gold">Contact</div>
-        <h2 className="mt-3 font-serif text-2xl font-bold sm:text-3xl md:text-4xl">Get in touch</h2>
-        <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground sm:text-base">Questions about registration, tickets, or the programme? Reach out to the FYB Dinner planning committee.</p>
-        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-          <a href={`mailto:${EVENT.contactEmail}`} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-gold/40 bg-card/60 px-5 py-3 text-sm hover:bg-card sm:w-auto sm:py-2.5"><Mail className="h-4 w-4 text-gold" /> {EVENT.contactEmail}</a>
-          <a href={`tel:${EVENT.contactPhone}`} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-gold/40 bg-card/60 px-5 py-3 text-sm hover:bg-card sm:w-auto sm:py-2.5"><Phone className="h-4 w-4 text-gold" /> {EVENT.contactPhone}</a>
-        </div>
-        <div className="mt-8">
-          <Link to="/register" className="inline-block w-full rounded-full bg-gradient-gold px-8 py-3.5 text-sm font-semibold text-gold-foreground shadow-gold hover:opacity-90 sm:w-auto">
-            Reserve your seat
-          </Link>
-        </div>
-      </section>
-
-      <SiteFooter />
-    </div>
-  );
-}
-
-function GalleryTile({ imageUrl, caption }: { imageUrl: string; caption: string | null }) {
-  const [broken, setBroken] = useState(false);
-  if (broken) return null;
-
-  return (
-    <div className="aspect-square overflow-hidden rounded-xl border border-border/60 bg-card">
-      <img
-        src={imageUrl}
-        alt={caption ?? "Gallery photo"}
-        className="h-full w-full object-cover"
-        onError={() => setBroken(true)}
+      <HeroSection
+        dateHuman={formatted.date}
+        timeHuman={formatted.time}
+        venue={venue}
+        eventDate={eventDate}
       />
+      <FybStorySection />
+      <AboutSection />
+      <ProgrammeSection />
+      <EventDetailsSection dateHuman={formatted.date} timeHuman={formatted.time} venue={venue} />
+      <GallerySection gallery={gallery} />
+      <FaqSection items={faqItems} />
+      <ContactSection />
+      <SiteFooter />
     </div>
   );
 }

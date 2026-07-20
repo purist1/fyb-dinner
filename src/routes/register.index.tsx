@@ -1,10 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
 import { GraduationCap, UserPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
+import {
+  RegisterInvitationBanner,
+  RegisterPageHeader,
+} from "@/components/marketing/register-layout";
+import { StaggerItem, StaggerReveal } from "@/components/marketing/scroll-reveal";
 import { formatGuestTicketPriceList } from "@/lib/guest-tickets";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/register/")({ component: RegisterChooser });
 
@@ -14,7 +19,9 @@ function useSettings() {
     queryFn: async () => {
       const { data } = await supabase.from("event_settings").select("key,value");
       const map: Record<string, string> = {};
-      (data ?? []).forEach((r: { key: string; value: string | null }) => { if (r.value != null) map[r.key] = r.value; });
+      (data ?? []).forEach((r: { key: string; value: string | null }) => {
+        if (r.value != null) map[r.key] = r.value;
+      });
       return map;
     },
   });
@@ -30,29 +37,52 @@ function RegisterChooser() {
     <div className="min-h-screen">
       <SiteHeader />
       <section className="mx-auto max-w-5xl px-4 py-12 sm:py-16">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="text-xs uppercase tracking-widest text-gold">Registration</div>
-          <h1 className="mt-3 font-serif text-3xl font-bold sm:text-4xl md:text-5xl">Choose how you're attending</h1>
-          <p className="mt-4 text-sm text-muted-foreground sm:text-base">Select the option that best describes you to begin registration.</p>
-        </div>
-        <div className="mt-8 grid gap-4 sm:mt-12 sm:grid-cols-2 sm:gap-6">
-          <Link to="/register/fyb" className="group rounded-3xl border border-gold/30 bg-gradient-royal p-6 shadow-elegant transition hover:border-gold hover:shadow-gold sm:p-8">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-gold text-gold-foreground sm:h-14 sm:w-14">
-              <GraduationCap className="h-6 w-6 sm:h-7 sm:w-7" />
-            </div>
-            <h2 className="mt-5 font-serif text-xl font-bold sm:mt-6 sm:text-2xl">I'm a Finalist (FYB)</h2>
-            <p className="mt-2 text-sm text-muted-foreground">For final-year students of NIFES CUSTECH Osara being sent forth. Registration is ₦{formattedFyb}.</p>
-            <div className="mt-5 inline-flex text-sm font-semibold text-gold group-hover:underline sm:mt-6">Continue as FYB →</div>
-          </Link>
-          <Link to="/register/guest" className="group rounded-3xl border border-gold/30 bg-card p-6 shadow-elegant transition hover:border-gold hover:shadow-gold sm:p-8">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-gold text-gold-foreground sm:h-14 sm:w-14">
-              <UserPlus className="h-6 w-6 sm:h-7 sm:w-7" />
-            </div>
-            <h2 className="mt-5 font-serif text-xl font-bold sm:mt-6 sm:text-2xl">I'm a Guest</h2>
-            <p className="mt-2 text-sm text-muted-foreground">For alumni, friends of the fellowship, family members, and invited guests. Tickets: {guestTicketPrices}.</p>
-            <div className="mt-5 inline-flex text-sm font-semibold text-gold group-hover:underline sm:mt-6">Continue as Guest →</div>
-          </Link>
-        </div>
+        <RegisterInvitationBanner className="mb-12" />
+        <RegisterPageHeader
+          eyebrow="Registration"
+          title="Choose how you're attending"
+          subtitle="Select the option that best describes you to begin your registration."
+        />
+
+        <StaggerReveal className="mt-10 grid gap-4 sm:mt-14 sm:grid-cols-2 sm:gap-6">
+          <StaggerItem>
+            <Link
+              to="/register/fyb"
+              className="group flex h-full flex-col rounded-3xl border-2 border-gold/30 bg-gradient-royal p-6 shadow-elegant transition hover:-translate-y-1 hover:border-gold hover:shadow-gold sm:p-8"
+            >
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-gold text-gold-foreground shadow-gold">
+                <GraduationCap className="h-7 w-7" />
+              </div>
+              <h2 className="mt-6 font-serif text-2xl font-bold">I'm a Finalist (FYB)</h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">
+                For final-year students of NIFES CUSTECH Osara being sent forth. Registration is ₦
+                {formattedFyb}.
+              </p>
+              <div className="mt-6 text-sm font-semibold text-gold group-hover:underline">
+                Continue as FYB →
+              </div>
+            </Link>
+          </StaggerItem>
+
+          <StaggerItem>
+            <Link
+              to="/register/guest"
+              className="group flex h-full flex-col rounded-3xl border-2 border-gold/30 bg-surface-cream p-6 text-surface-cream-foreground shadow-elegant transition hover:-translate-y-1 hover:border-gold hover:shadow-gold sm:p-8"
+            >
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-gold text-gold-foreground shadow-gold">
+                <UserPlus className="h-7 w-7" />
+              </div>
+              <h2 className="mt-6 font-serif text-2xl font-bold">I'm a Guest</h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-surface-cream-foreground/75">
+                For alumni, friends of the fellowship, family members, and invited guests. Tickets:{" "}
+                {guestTicketPrices}.
+              </p>
+              <div className="mt-6 text-sm font-semibold text-gold group-hover:underline">
+                Continue as Guest →
+              </div>
+            </Link>
+          </StaggerItem>
+        </StaggerReveal>
       </section>
       <SiteFooter />
     </div>

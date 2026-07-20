@@ -1,6 +1,7 @@
-import { createFileRoute, useSearch, Link } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { CeremonialButton } from "@/components/marketing/ceremonial-button";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import QRCode from "qrcode";
@@ -133,34 +134,32 @@ function TicketPage() {
       <SiteHeader />
       <section className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
         {loading ? (
-          <div className="flex items-center justify-center py-24 text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading your ticket…
+          <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin text-gold" />
+            <p className="mt-4 font-serif text-lg">Preparing your VIP pass…</p>
           </div>
         ) : loadError ? (
           <div className="rounded-2xl border border-destructive/60 bg-card p-8 text-center">
             <h2 className="font-serif text-2xl text-destructive">Could not load ticket</h2>
             <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
-            <button
+            <CeremonialButton
               type="button"
+              className="mt-6"
               onClick={() => {
                 setLoading(true);
                 void loadTicket().finally(() => setLoading(false));
               }}
-              className="mt-6 inline-flex rounded-full bg-gradient-gold px-6 py-2.5 text-sm font-semibold text-gold-foreground"
             >
               Try again
-            </button>
+            </CeremonialButton>
           </div>
         ) : !reg ? (
           <div className="rounded-2xl border border-border/60 bg-card p-8 text-center">
             <h2 className="font-serif text-2xl">Ticket not found</h2>
             <p className="mt-2 text-sm text-muted-foreground">This ticket code doesn't exist.</p>
-            <Link
-              to="/register"
-              className="mt-6 inline-flex rounded-full bg-gradient-gold px-6 py-2.5 text-sm font-semibold text-gold-foreground"
-            >
+            <CeremonialButton to="/register" className="mt-6">
               Register
-            </Link>
+            </CeremonialButton>
           </div>
         ) : (
           <div className="relative">
@@ -348,11 +347,12 @@ function TicketPage() {
 
             <div className="no-print mt-6 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
               {paid && (
-                <button
+                <CeremonialButton
                   type="button"
-                  onClick={() => void handleSendTicketEmail()}
+                  variant="secondary"
+                  className="gap-2 sm:py-3"
                   disabled={emailBusy}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-gold/40 bg-card px-6 py-3.5 text-sm font-semibold text-foreground shadow-elegant transition hover:bg-card/60 disabled:opacity-60 sm:py-3"
+                  onClick={() => void handleSendTicketEmail()}
                 >
                   {emailBusy ? (
                     <Loader2 className="h-4 w-4 animate-spin text-gold" />
@@ -360,20 +360,19 @@ function TicketPage() {
                     <Mail className="h-4 w-4 text-gold" />
                   )}
                   Email my ticket
-                </button>
+                </CeremonialButton>
               )}
-              <button
+              <CeremonialButton
+                type="button"
+                variant="secondary"
+                className="gap-2 sm:py-3"
                 onClick={() => window.print()}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-gold/40 bg-card px-6 py-3.5 text-sm font-semibold text-foreground shadow-elegant transition hover:bg-card/60 sm:py-3"
               >
                 <Download className="h-4 w-4 text-gold" /> Print / Save PDF
-              </button>
-              <Link
-                to="/"
-                className="inline-flex items-center justify-center rounded-full bg-gradient-gold px-6 py-3.5 text-sm font-semibold text-gold-foreground shadow-gold transition hover:opacity-90 sm:py-3"
-              >
+              </CeremonialButton>
+              <CeremonialButton to="/" className="sm:py-3">
                 Return Home
-              </Link>
+              </CeremonialButton>
             </div>
           </div>
         )}
