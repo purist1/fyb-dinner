@@ -393,14 +393,14 @@ export const adminMarkPayment = createServerFn({ method: "POST" })
 
     if (regError || !reg) throw new Error("Registration not found.");
 
-    // 3. Run the update — split into two typed calls to satisfy Supabase generated types.
+    // 3. Run the update with proper Supabase types
     if (data.status === "paid") {
+      const paidUpdate = data.paymentAmount != null
+        ? { payment_status: "paid" as const, payment_amount: data.paymentAmount }
+        : { payment_status: "paid" as const };
       const { error: updateError } = await supabase
         .from("registrations")
-        .update({
-          payment_status: "paid",
-          ...(data.paymentAmount != null ? { payment_amount: data.paymentAmount } : {}),
-        } as Parameters<ReturnType<typeof supabase.from<"registrations">>["update"]>[0])
+        .update(paidUpdate)
         .eq("id", data.registrationId);
       if (updateError) throw new Error(`Failed to update payment status: ${updateError.message}`);
     } else {
