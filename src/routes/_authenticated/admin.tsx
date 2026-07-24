@@ -28,7 +28,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { EVENT } from "@/lib/event";
 import { uploadGalleryBatch, deleteGalleryImage, type GalleryUploadProgress } from "@/lib/storage";
-import { bulkImportRegistrations, adminMarkPayment } from "@/lib/registrations.functions";
+import { bulkImportRegistrations, adminVerifyAndPayReference, adminDeleteRegistration } from "@/lib/registrations.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage });
 
@@ -50,7 +50,7 @@ type Reg = {
   created_at: string;
 };
 
-type PaymentDialogReg = {
+type PendingActionReg = {
   id: string;
   full_name: string;
   email: string;
@@ -63,7 +63,8 @@ type PaymentDialogReg = {
 function AdminPage() {
   const navigate = useNavigate();
   const runBulkImport = useServerFn(bulkImportRegistrations);
-  const runMarkPayment = useServerFn(adminMarkPayment);
+  const runVerifyPayment = useServerFn(adminVerifyAndPayReference);
+  const runDeleteReg = useServerFn(adminDeleteRegistration);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [regs, setRegs] = useState<Reg[]>([]);
@@ -82,9 +83,13 @@ function AdminPage() {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Payment dialog state
-  const [paymentDialog, setPaymentDialog] = useState<PaymentDialogReg | null>(null);
-  const [markingPayment, setMarkingPayment] = useState(false);
+  // Verify-payment dialog state
+  const [verifyDialog, setVerifyDialog] = useState<PendingActionReg | null>(null);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+
+  // Delete-registration dialog state
+  const [deleteTarget, setDeleteTarget] = useState<PendingActionReg | null>(null);
+  const [deletingReg, setDeletingReg] = useState(false);
 
   // Bulk import states
   const [importPreview, setImportPreview] = useState<any[]>([]);
@@ -351,36 +356,46 @@ function AdminPage() {
     if (error) toast.error(error.message); else { toast.success(reg.checked_in ? "Undone" : "Checked in"); refresh(); }
   }
 
-  async function handleMarkPayment(reg: PaymentDialogReg, status: "paid" | "pending", amount: number | null) {
+  async function handleVerifyPayment(reg: PendingActionReg, reference: string) {
     if (!adminUserId) return;
-    setMarkingPayment(true);
+    setVerifyingPayment(true);
     try {
-      const result = await runMarkPayment({
-        data: {
-          registrationId: reg.id,
-          status,
-          paymentAmount: amount,
-          adminUserId,
-          sendEmail: status === "paid",
-        },
+      const result = await runVerifyPayment({
+        data: { registrationId: reg.id, reference, adminUserId },
       });
       if (result.ok) {
-        if (status === "paid") {
-          if (result.emailSent) {
-            toast.success(`${reg.full_name} marked as paid — ticket emailed to ${reg.email}`);
-          } else {
-            toast.warning(`Marked paid, but ticket email failed: ${result.emailError ?? "unknown error"}`);
-          }
+        const amtStr = result.amountPaid ? ` (₦${result.amountPaid.toLocaleString()})` : "";
+        if (result.emailSent) {
+          toast.success(`✅ Payment verified${amtStr} — ticket emailed to ${reg.email}`);
         } else {
-          toast.success(`${reg.full_name} reverted to unpaid`);
+          toast.warning(`Payment verified${amtStr}, but email failed: ${result.emailError ?? "unknown"}`);
         }
-        setPaymentDialog(null);
+        setVerifyDialog(null);
         await refresh();
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update payment status");
+      toast.error(err instanceof Error ? err.message : "Verification failed");
     } finally {
-      setMarkingPayment(false);
+      setVerifyingPayment(false);
+    }
+  }
+
+  async function handleDeleteReg(reg: PendingActionReg) {
+    if (!adminUserId) return;
+    setDeletingReg(true);
+    try {
+      const result = await runDeleteReg({
+        data: { registrationId: reg.id, adminUserId },
+      });
+      if (result.ok) {
+        toast.success(`Registration for ${result.deletedName} deleted`);
+        setDeleteTarget(null);
+        await refresh();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeletingReg(false);
     }
   }
 
@@ -506,24 +521,38 @@ function AdminPage() {
                             {r.checked_in ? "Undo" : "Check in"}
                           </Button>
                           {r.payment_status === "pending" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-xs border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                              onClick={() => setPaymentDialog(r)}
-                            >
-                              <CheckCircle className="mr-1 h-3.5 w-3.5" />
-                              Mark Paid
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                                onClick={() => setVerifyDialog(r)}
+                              >
+                                <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                                Verify Payment
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
+                                onClick={() => setDeleteTarget(r)}
+                              >
+                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                Delete
+                              </Button>
+                            </>
                           ) : r.payment_status === "paid" ? (
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
-                              onClick={() => handleMarkPayment(r, "pending", null)}
+                              className="text-xs border-border text-muted-foreground hover:text-destructive hover:border-destructive/50"
+                              onClick={async () => {
+                                const { error } = await supabase.from("registrations").update({ payment_status: "pending", payment_reference: null }).eq("id", r.id);
+                                if (error) toast.error(error.message); else { toast.success(`${r.full_name} reverted to pending`); refresh(); }
+                              }}
                             >
                               <XCircle className="mr-1 h-3.5 w-3.5" />
-                              Unmark
+                              Revert
                             </Button>
                           ) : null}
                         </div>
@@ -535,15 +564,36 @@ function AdminPage() {
               </table>
             </div>
 
-            {/* Payment dialog */}
-            <PaymentDialog
-              reg={paymentDialog}
-              defaultFybPrice={parseInt(fybPrice || "7000", 10)}
-              defaultGuestPrice={parseInt(guestPrice || "5000", 10)}
-              busy={markingPayment}
-              onConfirm={(amount) => paymentDialog && handleMarkPayment(paymentDialog, "paid", amount)}
-              onClose={() => setPaymentDialog(null)}
+            {/* Verify payment dialog */}
+            <VerifyPaymentDialog
+              reg={verifyDialog}
+              busy={verifyingPayment}
+              onConfirm={(ref) => verifyDialog && handleVerifyPayment(verifyDialog, ref)}
+              onClose={() => setVerifyDialog(null)}
             />
+
+            {/* Delete confirmation */}
+            <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && !deletingReg && setDeleteTarget(null)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete registration?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently remove <strong>{deleteTarget?.full_name}</strong>'s pending registration (<span className="font-mono text-xs">{deleteTarget?.ticket_code}</span>). This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deletingReg}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deletingReg}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={(e) => { e.preventDefault(); deleteTarget && handleDeleteReg(deleteTarget); }}
+                  >
+                    {deletingReg ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Delete Registration
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           <TabsContent value="paidids" className="mt-6 space-y-6">
@@ -982,49 +1032,33 @@ function CheckinScanner({ regs, onCheckedIn }: { regs: Reg[]; onCheckedIn: () =>
   );
 }
 
-// ─── PaymentDialog ────────────────────────────────────────────────────────────
-function PaymentDialog({
+// ─── VerifyPaymentDialog ────────────────────────────────────────────────────
+function VerifyPaymentDialog({
   reg,
-  defaultFybPrice,
-  defaultGuestPrice,
   busy,
   onConfirm,
   onClose,
 }: {
-  reg: PaymentDialogReg | null;
-  defaultFybPrice: number;
-  defaultGuestPrice: number;
+  reg: PendingActionReg | null;
   busy: boolean;
-  onConfirm: (amount: number) => void;
+  onConfirm: (reference: string) => void;
   onClose: () => void;
 }) {
-  const expectedAmount = reg
-    ? reg.attendee_type === "fyb"
-      ? defaultFybPrice
-      : defaultGuestPrice
-    : 0;
+  const [reference, setReference] = useState("");
 
-  const [amount, setAmount] = useState<string>("");
-
-  // Reset amount whenever dialog opens with a new registration
   useEffect(() => {
-    if (reg) {
-      setAmount(String(reg.payment_amount ?? expectedAmount));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (reg) setReference("");
   }, [reg?.id]);
 
-  const parsedAmount = parseInt(amount, 10);
-  const amountValid = !isNaN(parsedAmount) && parsedAmount > 0;
-  const amountMatchesExpected = parsedAmount === expectedAmount;
+  const ref = reference.trim();
 
   return (
     <Dialog open={!!reg} onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-serif text-xl">Declare Payment</DialogTitle>
+          <DialogTitle className="font-serif text-xl">Verify Paystack Payment</DialogTitle>
           <DialogDescription>
-            Confirm the amount paid and mark this attendee as paid. A ticket email will be sent automatically.
+            Enter the Paystack transaction reference to verify and mark this attendee as paid. The ticket email will be sent automatically.
           </DialogDescription>
         </DialogHeader>
 
@@ -1034,38 +1068,30 @@ function PaymentDialog({
             <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-1.5">
               <div className="font-serif text-lg font-semibold">{reg.full_name}</div>
               <div className="text-xs text-muted-foreground">{reg.email}</div>
-              <Badge variant="outline" className="border-gold/40 text-gold text-[10px] mt-1">
-                {reg.attendee_type.toUpperCase()}
-              </Badge>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="border-gold/40 text-gold text-[10px]">
+                  {reg.attendee_type.toUpperCase()}
+                </Badge>
+                <span className="font-mono text-[10px] text-muted-foreground">{reg.ticket_code}</span>
+              </div>
             </div>
 
-            {/* Amount field */}
+            {/* Reference input */}
             <div className="space-y-2">
-              <Label htmlFor="pay-amount" className="text-sm font-medium">
-                Amount Paid (₦)
+              <Label htmlFor="paystack-ref" className="text-sm font-medium">
+                Paystack Reference
               </Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₦</span>
-                <Input
-                  id="pay-amount"
-                  type="number"
-                  min={1}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="pl-8"
-                  placeholder={String(expectedAmount)}
-                />
-              </div>
+              <Input
+                id="paystack-ref"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                placeholder="e.g. T658234567890"
+                className="font-mono"
+                autoComplete="off"
+                spellCheck={false}
+              />
               <p className="text-xs text-muted-foreground">
-                Expected: <span className="font-mono text-gold">₦{expectedAmount.toLocaleString()}</span>
-                {amountValid && !amountMatchesExpected && (
-                  <span className="ml-2 text-amber-400">
-                    ⚠ Amount differs from expected price
-                  </span>
-                )}
-                {amountValid && amountMatchesExpected && (
-                  <span className="ml-2 text-emerald-400">✓ Matches expected price</span>
-                )}
+                Copy the reference from your Paystack dashboard → Transactions.
               </p>
             </div>
 
@@ -1073,7 +1099,8 @@ function PaymentDialog({
             <div className="flex items-start gap-2.5 rounded-lg border border-gold/20 bg-gold/5 p-3">
               <Mail className="mt-0.5 h-4 w-4 flex-shrink-0 text-gold" />
               <p className="text-xs text-muted-foreground leading-relaxed">
-                A ticket email will be sent to <span className="font-medium text-foreground">{reg.email}</span> as soon as you confirm.
+                If Paystack confirms the payment, a ticket email will be sent to{" "}
+                <span className="font-medium text-foreground">{reg.email}</span> and the amount paid will be recorded automatically.
               </p>
             </div>
           </div>
@@ -1084,14 +1111,14 @@ function PaymentDialog({
             Cancel
           </Button>
           <Button
-            onClick={() => amountValid && onConfirm(parsedAmount)}
-            disabled={!amountValid || busy}
+            onClick={() => ref && onConfirm(ref)}
+            disabled={!ref || busy}
             className="bg-emerald-600 hover:bg-emerald-500 text-white"
           >
             {busy ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing…</>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying with Paystack…</>
             ) : (
-              <><CheckCircle className="mr-2 h-4 w-4" />Declare Paid &amp; Send Ticket</>
+              <><CheckCircle className="mr-2 h-4 w-4" />Verify &amp; Mark Paid</>
             )}
           </Button>
         </DialogFooter>
@@ -1099,3 +1126,5 @@ function PaymentDialog({
     </Dialog>
   );
 }
+
+

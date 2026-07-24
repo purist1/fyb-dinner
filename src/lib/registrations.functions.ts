@@ -438,6 +438,140 @@ export const adminMarkPayment = createServerFn({ method: "POST" })
     };
   });
 
+/** Admin: verify a Paystack reference for a specific registration and mark it paid.
+ *  - Verifies admin role
+ *  - Calls Paystack to confirm the reference is a successful transaction
+ *  - Marks the given registration as paid and stores the reference
+ *  - Sends the ticket email automatically
+ */
+export const adminVerifyAndPayReference = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({
+      registrationId: z.string().uuid(),
+      reference: z.string().trim().min(1),
+      adminUserId: z.string().uuid(),
+    }).parse(d)
+  )
+  .handler(async ({ data }) => {
+    const supabase = serverAdmin();
+
+    // 1. Verify admin role
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.adminUserId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (roleError || !role) throw new Error("Unauthorized: Admin role required.");
+
+    // 2. Load the registration
+    const { data: reg, error: regError } = await supabase
+      .from("registrations")
+      .select("id, ticket_code, email, full_name, attendee_type, payment_status, payment_reference")
+      .eq("id", data.registrationId)
+      .maybeSingle();
+    if (regError || !reg) throw new Error("Registration not found.");
+    if (reg.payment_status === "paid" || reg.payment_status === "free") {
+      throw new Error("This registration is already marked as paid.");
+    }
+
+    // 3. Verify the reference with Paystack
+    const secret = readEnv("PAYSTACK_SECRET_KEY");
+    if (!secret) throw new Error("Paystack is not configured. Set PAYSTACK_SECRET_KEY.");
+    const res = await fetch(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(data.reference.trim())}`,
+      { headers: { Authorization: `Bearer ${secret}` } }
+    );
+    const body = await res.json() as {
+      status?: boolean;
+      message?: string;
+      data?: { status: string; amount: number; currency: string; reference: string };
+    };
+
+    if (!res.ok || !body.status || !body.data) {
+      throw new Error(body.message || "Could not reach Paystack. Check the reference and try again.");
+    }
+    if (body.data.status !== "success") {
+      throw new Error(`Paystack transaction status is "${body.data.status}", not "success". Payment not confirmed.`);
+    }
+
+    const amountPaid = Math.round(body.data.amount / 100); // Paystack returns amount in kobo
+
+    // 4. Mark registration as paid
+    const { error: updateError } = await supabase
+      .from("registrations")
+      .update({
+        payment_status: "paid",
+        payment_reference: data.reference.trim(),
+        payment_amount: amountPaid,
+      })
+      .eq("id", data.registrationId);
+    if (updateError) throw new Error(`Payment verified but DB update failed: ${updateError.message}`);
+
+    // 5. Send ticket email
+    const emailResult = await sendTicketEmail({
+      email: reg.email,
+      fullName: reg.full_name,
+      ticketCode: reg.ticket_code,
+      attendeeType: reg.attendee_type as "fyb" | "guest",
+    });
+    if (!emailResult.ok) {
+      console.error("❌ [adminVerifyAndPayReference] Ticket email failed:", emailResult.error);
+    }
+
+    return {
+      ok: true as const,
+      ticketCode: reg.ticket_code,
+      amountPaid,
+      currency: body.data.currency,
+      emailSent: emailResult.ok,
+      emailError: emailResult.ok ? undefined : emailResult.error,
+    };
+  });
+
+/** Admin: permanently delete a pending registration.
+ *  Refuses to delete registrations that are already paid or free.
+ */
+export const adminDeleteRegistration = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({
+      registrationId: z.string().uuid(),
+      adminUserId: z.string().uuid(),
+    }).parse(d)
+  )
+  .handler(async ({ data }) => {
+    const supabase = serverAdmin();
+
+    // 1. Verify admin role
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.adminUserId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (roleError || !role) throw new Error("Unauthorized: Admin role required.");
+
+    // 2. Fetch registration to check its status
+    const { data: reg, error: regError } = await supabase
+      .from("registrations")
+      .select("id, full_name, payment_status")
+      .eq("id", data.registrationId)
+      .maybeSingle();
+    if (regError || !reg) throw new Error("Registration not found.");
+    if (reg.payment_status === "paid" || reg.payment_status === "free") {
+      throw new Error(`Cannot delete a paid registration (${reg.full_name}). Revert to pending first.`);
+    }
+
+    // 3. Delete
+    const { error: deleteError } = await supabase
+      .from("registrations")
+      .delete()
+      .eq("id", data.registrationId);
+    if (deleteError) throw new Error(`Failed to delete registration: ${deleteError.message}`);
+
+    return { ok: true as const, deletedName: reg.full_name };
+  });
+
 /** Send the VIP ticket email for a paid or free registration. */
 export const deliverTicketEmail = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ ticket_code: z.string().trim().min(1) }).parse(d))
