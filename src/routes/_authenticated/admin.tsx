@@ -21,13 +21,14 @@ import {
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { Loader2, Upload, Download, ScanLine, LogOut, Search, ShieldAlert, Save, Trash2 } from "lucide-react";
+import { Loader2, Upload, Download, ScanLine, LogOut, Search, ShieldAlert, Save, Trash2, CheckCircle, XCircle, Mail } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Html5Qrcode } from "html5-qrcode";
 import { useServerFn } from "@tanstack/react-start";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { EVENT } from "@/lib/event";
 import { uploadGalleryBatch, deleteGalleryImage, type GalleryUploadProgress } from "@/lib/storage";
-import { bulkImportRegistrations } from "@/lib/registrations.functions";
+import { bulkImportRegistrations, adminMarkPayment } from "@/lib/registrations.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage });
 
@@ -49,9 +50,20 @@ type Reg = {
   created_at: string;
 };
 
+type PaymentDialogReg = {
+  id: string;
+  full_name: string;
+  email: string;
+  attendee_type: string;
+  payment_status: string;
+  payment_amount: number | null;
+  ticket_code: string;
+};
+
 function AdminPage() {
   const navigate = useNavigate();
   const runBulkImport = useServerFn(bulkImportRegistrations);
+  const runMarkPayment = useServerFn(adminMarkPayment);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [regs, setRegs] = useState<Reg[]>([]);
@@ -69,6 +81,10 @@ function AdminPage() {
   const [deletingGallery, setDeletingGallery] = useState(false);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Payment dialog state
+  const [paymentDialog, setPaymentDialog] = useState<PaymentDialogReg | null>(null);
+  const [markingPayment, setMarkingPayment] = useState(false);
 
   // Bulk import states
   const [importPreview, setImportPreview] = useState<any[]>([]);
@@ -335,6 +351,39 @@ function AdminPage() {
     if (error) toast.error(error.message); else { toast.success(reg.checked_in ? "Undone" : "Checked in"); refresh(); }
   }
 
+  async function handleMarkPayment(reg: PaymentDialogReg, status: "paid" | "pending", amount: number | null) {
+    if (!adminUserId) return;
+    setMarkingPayment(true);
+    try {
+      const result = await runMarkPayment({
+        data: {
+          registrationId: reg.id,
+          status,
+          paymentAmount: amount,
+          adminUserId,
+          sendEmail: status === "paid",
+        },
+      });
+      if (result.ok) {
+        if (status === "paid") {
+          if (result.emailSent) {
+            toast.success(`${reg.full_name} marked as paid — ticket emailed to ${reg.email}`);
+          } else {
+            toast.warning(`Marked paid, but ticket email failed: ${result.emailError ?? "unknown error"}`);
+          }
+        } else {
+          toast.success(`${reg.full_name} reverted to unpaid`);
+        }
+        setPaymentDialog(null);
+        await refresh();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update payment status");
+    } finally {
+      setMarkingPayment(false);
+    }
+  }
+
   if (isAdmin === null) return <div className="grid min-h-screen place-items-center"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>;
 
   if (!isAdmin) {
@@ -417,7 +466,7 @@ function AdminPage() {
               </div>
             </div>
             <div className="overflow-x-auto rounded-xl border border-border/60">
-              <table className="w-full min-w-[700px] text-sm">
+              <table className="w-full min-w-[820px] text-sm">
                 <thead>
                   <tr className="border-b border-border/60 bg-card/60">
                     <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Ticket</th>
@@ -425,6 +474,7 @@ function AdminPage() {
                     <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Email</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Dept/Course</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Amount</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">Payment</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-muted-foreground">In</th>
                     <th className="px-3 py-3"></th>
@@ -438,17 +488,62 @@ function AdminPage() {
                       <td className="px-3 py-3"><Badge variant="outline" className="border-gold/40 text-gold text-[10px]">{r.attendee_type.toUpperCase()}</Badge></td>
                       <td className="px-3 py-3 text-xs">{r.email}</td>
                       <td className="px-3 py-3 text-xs">{r.department}{r.course ? ` · ${r.course}` : ""}</td>
+                      <td className="px-3 py-3 text-xs font-mono text-muted-foreground">
+                        {r.payment_amount != null ? `₦${r.payment_amount.toLocaleString()}` : "—"}
+                      </td>
                       <td className="px-3 py-3">
-                        <Badge variant={r.payment_status === "pending" ? "destructive" : "default"} className={r.payment_status !== "pending" ? "bg-gradient-gold text-gold-foreground" : ""}>{r.payment_status}</Badge>
+                        <Badge
+                          variant={r.payment_status === "pending" ? "destructive" : "default"}
+                          className={r.payment_status !== "pending" ? "bg-gradient-gold text-gold-foreground" : ""}
+                        >
+                          {r.payment_status}
+                        </Badge>
                       </td>
                       <td className="px-3 py-3">{r.checked_in ? <Badge className="bg-gradient-gold text-gold-foreground">In</Badge> : <Badge variant="outline">—</Badge>}</td>
-                      <td className="px-3 py-3"><Button size="sm" variant="ghost" onClick={() => toggleCheckin(r)}>{r.checked_in ? "Undo" : "Check in"}</Button></td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => toggleCheckin(r)} className="text-xs">
+                            {r.checked_in ? "Undo" : "Check in"}
+                          </Button>
+                          {r.payment_status === "pending" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                              onClick={() => setPaymentDialog(r)}
+                            >
+                              <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                              Mark Paid
+                            </Button>
+                          ) : r.payment_status === "paid" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleMarkPayment(r, "pending", null)}
+                            >
+                              <XCircle className="mr-1 h-3.5 w-3.5" />
+                              Unmark
+                            </Button>
+                          ) : null}
+                        </div>
+                      </td>
                     </tr>
                   ))}
-                  {filtered.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No registrations yet.</td></tr>}
+                  {filtered.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">No registrations yet.</td></tr>}
                 </tbody>
               </table>
             </div>
+
+            {/* Payment dialog */}
+            <PaymentDialog
+              reg={paymentDialog}
+              defaultFybPrice={parseInt(fybPrice || "7000", 10)}
+              defaultGuestPrice={parseInt(guestPrice || "5000", 10)}
+              busy={markingPayment}
+              onConfirm={(amount) => paymentDialog && handleMarkPayment(paymentDialog, "paid", amount)}
+              onClose={() => setPaymentDialog(null)}
+            />
           </TabsContent>
 
           <TabsContent value="paidids" className="mt-6 space-y-6">
@@ -884,5 +979,123 @@ function CheckinScanner({ regs, onCheckedIn }: { regs: Reg[]; onCheckedIn: () =>
         ) : <div className="mt-3 text-sm text-muted-foreground">Scan a ticket to see attendee details.</div>}
       </div>
     </div>
+  );
+}
+
+// ─── PaymentDialog ────────────────────────────────────────────────────────────
+function PaymentDialog({
+  reg,
+  defaultFybPrice,
+  defaultGuestPrice,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  reg: PaymentDialogReg | null;
+  defaultFybPrice: number;
+  defaultGuestPrice: number;
+  busy: boolean;
+  onConfirm: (amount: number) => void;
+  onClose: () => void;
+}) {
+  const expectedAmount = reg
+    ? reg.attendee_type === "fyb"
+      ? defaultFybPrice
+      : defaultGuestPrice
+    : 0;
+
+  const [amount, setAmount] = useState<string>("");
+
+  // Reset amount whenever dialog opens with a new registration
+  useEffect(() => {
+    if (reg) {
+      setAmount(String(reg.payment_amount ?? expectedAmount));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reg?.id]);
+
+  const parsedAmount = parseInt(amount, 10);
+  const amountValid = !isNaN(parsedAmount) && parsedAmount > 0;
+  const amountMatchesExpected = parsedAmount === expectedAmount;
+
+  return (
+    <Dialog open={!!reg} onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-serif text-xl">Declare Payment</DialogTitle>
+          <DialogDescription>
+            Confirm the amount paid and mark this attendee as paid. A ticket email will be sent automatically.
+          </DialogDescription>
+        </DialogHeader>
+
+        {reg && (
+          <div className="space-y-5 py-2">
+            {/* Attendee info */}
+            <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-1.5">
+              <div className="font-serif text-lg font-semibold">{reg.full_name}</div>
+              <div className="text-xs text-muted-foreground">{reg.email}</div>
+              <Badge variant="outline" className="border-gold/40 text-gold text-[10px] mt-1">
+                {reg.attendee_type.toUpperCase()}
+              </Badge>
+            </div>
+
+            {/* Amount field */}
+            <div className="space-y-2">
+              <Label htmlFor="pay-amount" className="text-sm font-medium">
+                Amount Paid (₦)
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₦</span>
+                <Input
+                  id="pay-amount"
+                  type="number"
+                  min={1}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="pl-8"
+                  placeholder={String(expectedAmount)}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Expected: <span className="font-mono text-gold">₦{expectedAmount.toLocaleString()}</span>
+                {amountValid && !amountMatchesExpected && (
+                  <span className="ml-2 text-amber-400">
+                    ⚠ Amount differs from expected price
+                  </span>
+                )}
+                {amountValid && amountMatchesExpected && (
+                  <span className="ml-2 text-emerald-400">✓ Matches expected price</span>
+                )}
+              </p>
+            </div>
+
+            {/* Email notice */}
+            <div className="flex items-start gap-2.5 rounded-lg border border-gold/20 bg-gold/5 p-3">
+              <Mail className="mt-0.5 h-4 w-4 flex-shrink-0 text-gold" />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                A ticket email will be sent to <span className="font-medium text-foreground">{reg.email}</span> as soon as you confirm.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => amountValid && onConfirm(parsedAmount)}
+            disabled={!amountValid || busy}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white"
+          >
+            {busy ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing…</>
+            ) : (
+              <><CheckCircle className="mr-2 h-4 w-4" />Declare Paid &amp; Send Ticket</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

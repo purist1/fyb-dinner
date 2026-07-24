@@ -356,6 +356,88 @@ export const verifyPaystackPayment = createServerFn({ method: "POST" })
     return { ok: true as const, paid: false };
   });
 
+/** Admin action: mark a registration as paid (and send ticket) or revert to pending.
+ *  Validates admin role server-side. When marking paid, sends ticket email automatically.
+ */
+export const adminMarkPayment = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({
+      registrationId: z.string().uuid(),
+      status: z.enum(["paid", "pending"]),
+      paymentAmount: z.number().positive().optional().nullable(),
+      adminUserId: z.string().uuid(),
+      sendEmail: z.boolean().optional().default(true),
+    }).parse(d)
+  )
+  .handler(async ({ data }) => {
+    const supabase = serverAdmin();
+
+    // 1. Verify admin role
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.adminUserId)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (roleError || !role) {
+      throw new Error("Unauthorized: Admin role required.");
+    }
+
+    // 2. Fetch the registration
+    const { data: reg, error: regError } = await supabase
+      .from("registrations")
+      .select("id, ticket_code, email, full_name, attendee_type, payment_status, payment_amount")
+      .eq("id", data.registrationId)
+      .maybeSingle();
+
+    if (regError || !reg) throw new Error("Registration not found.");
+
+    // 3. Run the update — split into two typed calls to satisfy Supabase generated types.
+    if (data.status === "paid") {
+      const { error: updateError } = await supabase
+        .from("registrations")
+        .update({
+          payment_status: "paid",
+          ...(data.paymentAmount != null ? { payment_amount: data.paymentAmount } : {}),
+        } as Parameters<ReturnType<typeof supabase.from<"registrations">>["update"]>[0])
+        .eq("id", data.registrationId);
+      if (updateError) throw new Error(`Failed to update payment status: ${updateError.message}`);
+    } else {
+      const { error: updateError } = await supabase
+        .from("registrations")
+        .update({ payment_status: "pending", payment_reference: null })
+        .eq("id", data.registrationId);
+      if (updateError) throw new Error(`Failed to update payment status: ${updateError.message}`);
+    }
+
+    // 4. Send ticket email when marking paid
+    let emailSent = false;
+    let emailError: string | undefined;
+
+    if (data.status === "paid" && data.sendEmail !== false) {
+      const emailResult = await sendTicketEmail({
+        email: reg.email,
+        fullName: reg.full_name,
+        ticketCode: reg.ticket_code,
+        attendeeType: reg.attendee_type as "fyb" | "guest",
+      });
+      emailSent = emailResult.ok;
+      if (!emailResult.ok) {
+        emailError = emailResult.error;
+        console.error("❌ [adminMarkPayment] Ticket email failed:", emailResult.error);
+      }
+    }
+
+    return {
+      ok: true as const,
+      status: data.status,
+      ticketCode: reg.ticket_code,
+      emailSent,
+      emailError,
+    };
+  });
+
 /** Send the VIP ticket email for a paid or free registration. */
 export const deliverTicketEmail = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ ticket_code: z.string().trim().min(1) }).parse(d))
