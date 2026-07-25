@@ -28,7 +28,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { EVENT } from "@/lib/event";
 import { uploadGalleryBatch, deleteGalleryImage, type GalleryUploadProgress } from "@/lib/storage";
-import { bulkImportRegistrations, adminVerifyAndPayReference, adminDeleteRegistration } from "@/lib/registrations.functions";
+import { bulkImportRegistrations, adminVerifyAndPayReference, adminDeleteRegistration, deliverTicketEmail } from "@/lib/registrations.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage });
 
@@ -65,6 +65,7 @@ function AdminPage() {
   const runBulkImport = useServerFn(bulkImportRegistrations);
   const runVerifyPayment = useServerFn(adminVerifyAndPayReference);
   const runDeleteReg = useServerFn(adminDeleteRegistration);
+  const runSendTicketEmail = useServerFn(deliverTicketEmail);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [regs, setRegs] = useState<Reg[]>([]);
@@ -90,6 +91,10 @@ function AdminPage() {
   // Delete-registration dialog state
   const [deleteTarget, setDeleteTarget] = useState<PendingActionReg | null>(null);
   const [deletingReg, setDeletingReg] = useState(false);
+
+  // Send-ticket dialog state
+  const [sendTicketDialog, setSendTicketDialog] = useState<PendingActionReg | null>(null);
+  const [sendingTicket, setSendingTicket] = useState(false);
 
   // Bulk import states
   const [importPreview, setImportPreview] = useState<any[]>([]);
@@ -399,6 +404,24 @@ function AdminPage() {
     }
   }
 
+  async function handleSendTicketEmail(reg: PendingActionReg, recipientEmail: string) {
+    setSendingTicket(true);
+    try {
+      const result = await runSendTicketEmail({
+        data: { ticket_code: reg.ticket_code, recipient_email: recipientEmail },
+      });
+      if (result.ok) {
+        toast.success(`✅ Ticket email sent to ${result.email}`);
+        setSendTicketDialog(null);
+        await refresh();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send ticket email");
+    } finally {
+      setSendingTicket(false);
+    }
+  }
+
   if (isAdmin === null) return <div className="grid min-h-screen place-items-center"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>;
 
   if (!isAdmin) {
@@ -541,19 +564,30 @@ function AdminPage() {
                                 Delete
                               </Button>
                             </>
-                          ) : r.payment_status === "paid" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-xs border-border text-muted-foreground hover:text-destructive hover:border-destructive/50"
-                              onClick={async () => {
-                                const { error } = await supabase.from("registrations").update({ payment_status: "pending", payment_reference: null }).eq("id", r.id);
-                                if (error) toast.error(error.message); else { toast.success(`${r.full_name} reverted to pending`); refresh(); }
-                              }}
-                            >
-                              <XCircle className="mr-1 h-3.5 w-3.5" />
-                              Revert
-                            </Button>
+                          ) : r.payment_status === "paid" || r.payment_status === "free" ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs border-gold/40 text-gold hover:bg-gold/10"
+                                onClick={() => setSendTicketDialog(r)}
+                              >
+                                <Mail className="mr-1 h-3.5 w-3.5" />
+                                Send Ticket
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs border-border text-muted-foreground hover:text-destructive hover:border-destructive/50"
+                                onClick={async () => {
+                                  const { error } = await supabase.from("registrations").update({ payment_status: "pending", payment_reference: null }).eq("id", r.id);
+                                  if (error) toast.error(error.message); else { toast.success(`${r.full_name} reverted to pending`); refresh(); }
+                                }}
+                              >
+                                <XCircle className="mr-1 h-3.5 w-3.5" />
+                                Revert
+                              </Button>
+                            </>
                           ) : null}
                         </div>
                       </td>
@@ -570,6 +604,14 @@ function AdminPage() {
               busy={verifyingPayment}
               onConfirm={(ref) => verifyDialog && handleVerifyPayment(verifyDialog, ref)}
               onClose={() => setVerifyDialog(null)}
+            />
+
+            {/* Send ticket email dialog */}
+            <SendTicketDialog
+              reg={sendTicketDialog}
+              busy={sendingTicket}
+              onConfirm={(email) => sendTicketDialog && handleSendTicketEmail(sendTicketDialog, email)}
+              onClose={() => setSendTicketDialog(null)}
             />
 
             {/* Delete confirmation */}
@@ -1126,5 +1168,98 @@ function VerifyPaymentDialog({
     </Dialog>
   );
 }
+
+// ─── SendTicketDialog ────────────────────────────────────────────────────────
+function SendTicketDialog({
+  reg,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  reg: PendingActionReg | null;
+  busy: boolean;
+  onConfirm: (email: string) => void;
+  onClose: () => void;
+}) {
+  const [recipientEmail, setRecipientEmail] = useState("");
+
+  useEffect(() => {
+    if (reg) setRecipientEmail(reg.email);
+  }, [reg?.id, reg?.email]);
+
+  const targetEmail = recipientEmail.trim();
+  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail);
+
+  return (
+    <Dialog open={!!reg} onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-serif text-xl">Send Ticket Email</DialogTitle>
+          <DialogDescription>
+            Send or resend the official digital ticket with QR code to this attendee.
+          </DialogDescription>
+        </DialogHeader>
+
+        {reg && (
+          <div className="space-y-5 py-2">
+            {/* Attendee details card */}
+            <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-1.5">
+              <div className="font-serif text-lg font-semibold">{reg.full_name}</div>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="border-gold/40 text-gold text-[10px]">
+                  {reg.attendee_type.toUpperCase()}
+                </Badge>
+                <span className="font-mono text-[10px] text-muted-foreground">{reg.ticket_code}</span>
+              </div>
+            </div>
+
+            {/* Destination Email input */}
+            <div className="space-y-2">
+              <Label htmlFor="send-email-input" className="text-sm font-medium">
+                Destination Email Address
+              </Label>
+              <Input
+                id="send-email-input"
+                type="email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                placeholder="attendee@example.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                You can edit this address if the attendee provided an updated email.
+              </p>
+            </div>
+
+            {/* Email info notice */}
+            <div className="flex items-start gap-2.5 rounded-lg border border-gold/20 bg-gold/5 p-3">
+              <Mail className="mt-0.5 h-4 w-4 flex-shrink-0 text-gold" />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                The email includes the ticket reference, event details, and unique QR code for venue entry.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => isValidEmail && onConfirm(targetEmail)}
+            disabled={!isValidEmail || busy}
+            className="bg-gradient-gold text-gold-foreground font-medium"
+          >
+            {busy ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending Email…</>
+            ) : (
+              <><Mail className="mr-2 h-4 w-4" />Send Ticket Email</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 

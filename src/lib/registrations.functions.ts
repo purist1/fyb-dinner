@@ -574,12 +574,17 @@ export const adminDeleteRegistration = createServerFn({ method: "POST" })
 
 /** Send the VIP ticket email for a paid or free registration. */
 export const deliverTicketEmail = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ ticket_code: z.string().trim().min(1) }).parse(d))
+  .inputValidator((d: unknown) =>
+    z.object({
+      ticket_code: z.string().trim().min(1),
+      recipient_email: z.string().trim().email().optional(),
+    }).parse(d)
+  )
   .handler(async ({ data }) => {
     const supabase = serverAdmin();
     const { data: reg, error } = await supabase
       .from("registrations")
-      .select("ticket_code, email, full_name, attendee_type, payment_status")
+      .select("id, ticket_code, email, full_name, attendee_type, payment_status")
       .eq("ticket_code", data.ticket_code)
       .maybeSingle();
 
@@ -589,15 +594,28 @@ export const deliverTicketEmail = createServerFn({ method: "POST" })
       throw new Error("Ticket email can only be sent after payment is confirmed.");
     }
 
+    const targetEmail = data.recipient_email?.trim() || reg.email;
+
+    // If a different email address was provided, update the registration email in DB
+    if (data.recipient_email && data.recipient_email.trim().toLowerCase() !== reg.email.toLowerCase()) {
+      const { error: updateErr } = await supabase
+        .from("registrations")
+        .update({ email: targetEmail })
+        .eq("id", reg.id);
+      if (updateErr) {
+        console.error("❌ Failed to update email for registration:", updateErr);
+      }
+    }
+
     const emailResult = await sendTicketEmail({
-      email: reg.email,
+      email: targetEmail,
       fullName: reg.full_name,
       ticketCode: reg.ticket_code,
       attendeeType: reg.attendee_type as "fyb" | "guest",
     });
 
     if (!emailResult.ok) throw new Error(emailResult.error);
-    return { ok: true as const, email: reg.email };
+    return { ok: true as const, email: targetEmail };
   });
 
 const bulkImportItemSchema = z.object({
