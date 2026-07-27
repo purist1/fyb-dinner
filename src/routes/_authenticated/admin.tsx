@@ -74,9 +74,11 @@ function AdminPage() {
   const [eventDate, setEventDate] = useState("");
   const [fybPrice, setFybPrice] = useState("");
   const [guestPrice, setGuestPrice] = useState("");
-  const [galleryItems, setGalleryItems] = useState<{ id: string; image_url: string; caption: string | null }[]>([]);
+  const [galleryItems, setGalleryItems] = useState<{ id: string; image_url: string; caption: string | null; edition?: string | null }[]>([]);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryCaption, setGalleryCaption] = useState("");
+  const [galleryUploadEdition, setGalleryUploadEdition] = useState<string>("2026");
+  const [galleryFilterEdition, setGalleryFilterEdition] = useState<string>("all");
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [galleryUploadProgress, setGalleryUploadProgress] = useState<GalleryUploadProgress | null>(null);
   const [galleryDeleteTarget, setGalleryDeleteTarget] = useState<{ id: string; image_url: string } | null>(null);
@@ -185,6 +187,7 @@ function AdminPage() {
 
       const { rows, failed } = await uploadGalleryBatch(galleryFiles, {
         caption,
+        edition: galleryUploadEdition,
         baseSort,
         onProgress: setGalleryUploadProgress,
       });
@@ -694,12 +697,24 @@ function AdminPage() {
                   )}
                 </div>
                 <div className="grid gap-2">
+                  <Label htmlFor="gallery-edition">Event Edition / Category</Label>
+                  <select
+                    id="gallery-edition"
+                    value={galleryUploadEdition}
+                    onChange={(e) => setGalleryUploadEdition(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring mt-1"
+                  >
+                    <option value="2026">2026 Dinner Night</option>
+                    <option value="2025">2025 Edition</option>
+                  </select>
+                </div>
+                <div className="grid gap-2">
                   <Label htmlFor="gallery-caption">Caption for all images</Label>
                   <Input
                     id="gallery-caption"
                     value={galleryCaption}
                     onChange={(e) => setGalleryCaption(e.target.value)}
-                    placeholder="e.g. FYB Dinner 2025 highlights"
+                    placeholder="e.g. FYB Dinner 2026 awards night"
                     className="mt-1"
                   />
                 </div>
@@ -740,11 +755,45 @@ function AdminPage() {
             </div>
 
             <div className="rounded-2xl border border-border/60 bg-card p-6">
-              <h2 className="font-serif text-xl font-bold mb-4">Current Gallery Images</h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+                <h2 className="font-serif text-xl font-bold">Current Gallery Images</h2>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={galleryFilterEdition === "all" ? "default" : "outline"}
+                    onClick={() => setGalleryFilterEdition("all")}
+                    className="text-xs"
+                  >
+                    All
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={galleryFilterEdition === "2026" ? "default" : "outline"}
+                    onClick={() => setGalleryFilterEdition("2026")}
+                    className="text-xs"
+                  >
+                    2026 Night
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={galleryFilterEdition === "2025" ? "default" : "outline"}
+                    onClick={() => setGalleryFilterEdition("2025")}
+                    className="text-xs"
+                  >
+                    2025 Edition
+                  </Button>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                {galleryItems.map((item) => (
-                  <AdminGalleryCard key={item.id} item={item} onDelete={() => requestDeleteGallery(item)} />
-                ))}
+                {galleryItems
+                  .filter((item) => {
+                    const ed = item.edition || "2025";
+                    if (galleryFilterEdition === "all") return true;
+                    return ed === galleryFilterEdition;
+                  })
+                  .map((item) => (
+                    <AdminGalleryCard key={item.id} item={item} onDelete={() => requestDeleteGallery(item)} />
+                  ))}
                 {galleryItems.length === 0 && (
                   <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
                     No gallery images uploaded yet. Upload images to show them on the event website.
@@ -928,10 +977,11 @@ function AdminGalleryCard({
   item,
   onDelete,
 }: {
-  item: { id: string; image_url: string; caption: string | null };
+  item: { id: string; image_url: string; caption: string | null; edition?: string | null };
   onDelete: () => void;
 }) {
   const [broken, setBroken] = useState(false);
+  const editionStr = item.edition || "2025";
 
   return (
     <div className="relative aspect-square overflow-hidden rounded-xl border border-border/60 bg-background">
@@ -955,6 +1005,11 @@ function AdminGalleryCard({
           {item.caption}
         </div>
       )}
+      <div className="absolute left-1.5 top-1.5">
+        <Badge variant="outline" className="border-gold/40 bg-background/80 text-gold text-[9px] px-1.5 py-0">
+          {editionStr === "2026" ? "2026" : "2025"}
+        </Badge>
+      </div>
       <button
         type="button"
         onClick={onDelete}

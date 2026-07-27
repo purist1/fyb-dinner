@@ -47,7 +47,7 @@ export type GalleryUploadProgress = {
 };
 
 export type GalleryBatchUploadResult = {
-  rows: { image_url: string; caption: string | null; sort_order: number }[];
+  rows: { image_url: string; caption: string | null; edition: string; sort_order: number }[];
   failed: number;
 };
 
@@ -56,11 +56,12 @@ export async function uploadGalleryBatch(
   files: File[],
   options: {
     caption: string | null;
+    edition?: string;
     baseSort: number;
     onProgress?: (progress: GalleryUploadProgress) => void;
   },
 ): Promise<GalleryBatchUploadResult> {
-  const { caption, baseSort, onProgress } = options;
+  const { caption, edition = "2026", baseSort, onProgress } = options;
   const total = files.length;
 
   return withWakeLock(async () => {
@@ -94,6 +95,7 @@ export async function uploadGalleryBatch(
       .map((r, i) => ({
         image_url: r.url,
         caption,
+        edition,
         sort_order: baseSort + i,
       }));
 

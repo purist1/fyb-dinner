@@ -9,12 +9,12 @@ import { EVENT } from "@/lib/event";
 import { cn } from "@/lib/utils";
 
 const links = [
-  { href: "/#story", label: "Story" },
-  { href: "/#about", label: "About" },
-  { href: "/#programme", label: "The Night" },
-  { href: "/#gallery", label: "Gallery" },
-  { href: "/#faq", label: "FAQ" },
-  { href: "/#contact", label: "Contact" },
+  { href: "/#story", label: "Story", isRoute: false },
+  { href: "/#about", label: "About", isRoute: false },
+  { href: "/#programme", label: "The Night", isRoute: false },
+  { href: "/gallery", label: "Gallery", isRoute: true },
+  { href: "/#faq", label: "FAQ", isRoute: false },
+  { href: "/#contact", label: "Contact", isRoute: false },
 ];
 
 export function SiteHeader() {
@@ -49,20 +49,30 @@ export function SiteHeader() {
         </Link>
 
         <nav className="hidden items-center gap-6 lg:flex">
-          {links.map((l) => (
-            <a
-              key={l.href}
-              href={l.href}
-              className="relative text-sm text-muted-foreground transition hover:text-gold after:absolute after:-bottom-1 after:left-0 after:h-px after:w-0 after:bg-gold after:transition-all hover:after:w-full"
-            >
-              {l.label}
-            </a>
-          ))}
+          {links.map((l) =>
+            l.isRoute ? (
+              <Link
+                key={l.href}
+                to={l.href}
+                className="relative text-sm text-muted-foreground transition hover:text-gold after:absolute after:-bottom-1 after:left-0 after:h-px after:w-0 after:bg-gold after:transition-all hover:after:w-full font-medium"
+              >
+                {l.label}
+              </Link>
+            ) : (
+              <a
+                key={l.href}
+                href={l.href}
+                className="relative text-sm text-muted-foreground transition hover:text-gold after:absolute after:-bottom-1 after:left-0 after:h-px after:w-0 after:bg-gold after:transition-all hover:after:w-full"
+              >
+                {l.label}
+              </a>
+            ),
+          )}
         </nav>
 
         <div className="hidden lg:block">
-          <CeremonialButton to="/register" className="px-5 py-2 text-sm">
-            Register
+          <CeremonialButton to="/gallery" className="px-5 py-2 text-sm">
+            View Gallery
           </CeremonialButton>
         </div>
 
@@ -81,22 +91,33 @@ export function SiteHeader() {
             className="overflow-hidden border-t border-border/40 bg-background lg:hidden"
           >
             <div className="mx-auto flex max-w-6xl flex-col gap-1 p-4">
-              {links.map((l) => (
-                <a
-                  key={l.href}
-                  href={l.href}
-                  onClick={() => setOpen(false)}
-                  className="rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  {l.label}
-                </a>
-              ))}
+              {links.map((l) =>
+                l.isRoute ? (
+                  <Link
+                    key={l.href}
+                    to={l.href}
+                    onClick={() => setOpen(false)}
+                    className="rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground font-medium"
+                  >
+                    {l.label}
+                  </Link>
+                ) : (
+                  <a
+                    key={l.href}
+                    href={l.href}
+                    onClick={() => setOpen(false)}
+                    className="rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    {l.label}
+                  </a>
+                ),
+              )}
               <CeremonialButton
-                to="/register"
+                to="/gallery"
                 className="mt-2 w-full text-center"
                 onClick={() => setOpen(false)}
               >
-                Register
+                View Gallery
               </CeremonialButton>
             </div>
           </motion.div>

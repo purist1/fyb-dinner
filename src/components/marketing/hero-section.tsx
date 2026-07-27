@@ -56,17 +56,17 @@ export function HeroSection({ dateHuman, timeHuman, venue, eventDate }: HeroSect
       <div className="relative mx-auto flex min-h-[90dvh] max-w-6xl flex-col justify-center px-4 py-20 sm:py-28">
         <Wrapper {...wrapperProps}>
           <Item {...itemProps}>
-            <div className="inline-flex items-center gap-2 rounded-full border border-gold/40 bg-card/40 px-4 py-1.5 text-eyebrow text-gold backdrop-blur">
-              <Sparkles className="h-3.5 w-3.5" /> {EVENT.orgShort} · {EVENT.chapter}
+            <div className="inline-flex items-center gap-2 rounded-full border border-gold/40 bg-card/60 px-4 py-1.5 text-eyebrow text-gold backdrop-blur">
+              <Sparkles className="h-3.5 w-3.5" /> 2026 Edition Concluded · Next Edition Loading
             </div>
           </Item>
 
           <Item {...itemProps}>
             <h1 className="mt-6 text-display font-bold leading-tight">
               <span className="block">FYB Dinner</span>
-              <span className="block font-accent text-gradient-gold">& Awards Night</span>
+              <span className="block font-accent text-gradient-gold">&amp; Awards Night</span>
               <span className="mt-2 block text-2xl font-medium text-muted-foreground sm:text-3xl">
-                {EVENT.year}
+                Anticipate 2027
               </span>
             </h1>
           </Item>
@@ -77,41 +77,26 @@ export function HeroSection({ dateHuman, timeHuman, venue, eventDate }: HeroSect
 
           <Item {...itemProps}>
             <p className="mx-auto max-w-2xl text-sm text-muted-foreground sm:text-lg">
-              An elegant evening of celebration, honour, and thanksgiving as we send forth our
-              finalists into the next chapter of God's calling.
+              The 2026 Dinner Night was an unforgettable celebration of praise, honour, and thanksgiving.
+              Relive the highlights and anticipate another grand edition in 2027!
             </p>
           </Item>
 
           <Item {...itemProps}>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs sm:gap-3 sm:text-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3 py-1.5 backdrop-blur">
-                <Calendar className="h-3.5 w-3.5 text-gold" /> {dateHuman}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3.5 py-1.5 backdrop-blur border border-gold/20 text-gold">
+                <Sparkles className="h-3.5 w-3.5 text-gold" /> 2026 Edition Successfully Concluded
               </span>
-              {timeHuman && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3 py-1.5 backdrop-blur">
-                  <Clock className="h-3.5 w-3.5 text-gold" /> {timeHuman}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-card/60 px-3 py-1.5 backdrop-blur">
-                <MapPin className="h-3.5 w-3.5 text-gold" /> {venue}
-              </span>
-            </div>
-          </Item>
-
-          <Item {...itemProps}>
-            <p className="mt-8 text-eyebrow text-muted-foreground">Until the celebration begins</p>
-            <div className="mt-3">
-              <Countdown iso={eventDate} />
             </div>
           </Item>
 
           <Item {...itemProps}>
             <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-              <CeremonialButton to="/register" className="w-full sm:w-auto">
-                Reserve Your Seat
+              <CeremonialButton to="/gallery" className="w-full sm:w-auto">
+                Explore 2026 Gallery
               </CeremonialButton>
-              <CeremonialButton href="#programme" variant="secondary" className="w-full sm:w-auto">
-                Explore the Night
+              <CeremonialButton href="#fyb-story" variant="secondary" className="w-full sm:w-auto">
+                Relive Memories
               </CeremonialButton>
             </div>
           </Item>

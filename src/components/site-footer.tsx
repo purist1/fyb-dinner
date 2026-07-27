@@ -33,9 +33,9 @@ export function SiteFooter() {
               <a href="/#details" className="transition hover:text-gold">
                 Event Details
               </a>
-              <a href="/#gallery" className="transition hover:text-gold">
-                Gallery
-              </a>
+              <Link to="/gallery" className="transition hover:text-gold">
+                Photo Gallery
+              </Link>
               <a href="/#faq" className="transition hover:text-gold">
                 FAQ
               </a>
